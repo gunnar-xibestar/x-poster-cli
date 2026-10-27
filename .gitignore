@@ -1,0 +1,41 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+# Secrets
+.env
+.env.*
+!.env.example
+env
+*.key
+# Runtime state / data written by xbot
+state/
+data/
+*.json
+*.jsonl
+*.log
+logs/
+queue.json
+filtered.json
+found.json
+seen*.json
+# Archives / editor
+*.tar.gz
+*.zip
+.DS_Store
+.idea/
+.vscode/
+# Secrets hardening (round 6)
+*.pem
+*.p12
+*.secret
+secrets*
+crash.log
+state.json
+**/.config/xbot/
+**/.local/state/xbot/

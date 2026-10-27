@@ -1,0 +1,7 @@
+textual>=8
+openai>=1.40
+requests
+requests-oauthlib
+pytest
+pytest-asyncio
+textual-image
