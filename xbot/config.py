@@ -4,6 +4,7 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 CONFIG_DIR = Path(os.environ.get("XBOT_CONFIG_DIR", Path.home() / ".config/xbot"))
+FEED_MAX = 100  # newest found posts loaded into the feed (found.json keeps everything)
 STATE_DIR = Path(os.environ.get("XBOT_STATE_DIR", Path.home() / ".local/state/xbot"))
 X_KEYS = ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET")
 HAND_EDIT_WARNING = "Editing this file by hand can break xbot; use `xbot config <key> <value>` instead."
@@ -36,6 +37,7 @@ class Config:
     auto_filter: bool = True  # master switch for /filter
     filter_topics: list = field(default_factory=lambda: ["adult", "spam", "x-flags"])
     x_flags_migrated: bool = False
+    draft_batch_migrated: bool = False  # old default draft_batch 8 -> 4 once
     filter_words: list = field(default_factory=list)
     topic_edits: dict = field(default_factory=dict)  # topic -> {'add': [...], 'remove': [...]}
     blocked_authors: list = field(default_factory=list)  # lowercase handles, no @
@@ -49,7 +51,7 @@ class Config:
     video_audio: str = "off"  # off = mpv runs muted
     video_scale: float = 0.6  # share of the picture area for videos/GIFs in the sixel viewer (0.2-1.0); photos use all of it
     sixel_scale: str = "auto"  # auto = measure the terminal (CSI 14t/16t + TIOCGWINSZ); or a factor (e.g. 1.25) if the viewer box is too small/big
-    draft_batch: int = 8  # max search posts per Grok request (fills free slots, rest prefilled); 1 = one post per request
+    draft_batch: int = 4  # max search posts per Grok request (fills free slots, rest prefilled); 1 = one post per request
     style_examples: int = 8  # few-shot examples from your edited drafts in the prompt; 0 disables
     prefill_max: int = 20  # stored drafts for upcoming feed posts; full + queue full = no Grok requests
     llm_rpm: int = 5  # max Grok requests per minute in total (match the key's limit; 0 = no pacing)
@@ -82,7 +84,7 @@ class Config:
                     continue
                 dv = getattr(d0, k)
                 bad = (k in NONEMPTY and not (isinstance(v, str) and v.strip())) or (
-                    dv is not None and v is not None and not isinstance(v, type(dv))
+                    dv is not None and (v is None or not isinstance(v, type(dv)))
                     and not (isinstance(dv, float) and isinstance(v, int) and not isinstance(v, bool))) or (
                     isinstance(v, (int, float)) and not isinstance(v, bool) and v < 0)
                 if bad:

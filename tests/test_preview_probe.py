@@ -1,8 +1,3 @@
-import sys
-from PIL import Image as PILImage
-from xbot.app import XBotApp, PostCard, FilterOptions
-from tests.test_search import S
-from tests.test_media_layout import P
 
 
 def test_main_probes_before_textual(monkeypatch):

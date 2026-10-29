@@ -1,9 +1,9 @@
 import json
-from textual.widgets import TextArea, SelectionList
+from textual.widgets import TextArea
 from xbot.commands import parse
 from xbot.llm import FakeLLM
 from xbot.tags import x_labels, label_ids, build_query
-from xbot.app import XBotApp, PostCard, ReplyEditor, TagPicker
+from xbot.app import XBotApp, PostCard, ReplyEditor
 from xbot.render import card_renderable
 from tests.test_search import P, S
 
@@ -66,10 +66,10 @@ async def test_g_with_grok_drafts_and_sends_dry(mk):
         assert "rust" in llm.calls[0][1] and "@ann" in llm.calls[0][1]
         await pilot.press("ctrl+g"); await app.workers.wait_for_complete(); await pilot.pause()
         assert ed.query_one(TextArea).text == "second draft"
-        await pilot.press("ctrl+s"); await pilot.pause()
-        assert isinstance(app.screen, PostCard)
+        await pilot.press("ctrl+s"); await pilot.pause(); await pilot.pause()
+        assert not isinstance(app.screen, (PostCard, ReplyEditor))  # only post replied: removed, back to list
     assert b.dry_x.sent == [{"id": b.dry_x.sent[0]["id"], "text": "second draft", "in_reply_to": "77"}]
-    assert b.found[0]["replied"] and json.loads(b.found_path.read_text())["posts"][0]["replied"]
+    assert "77" not in [p["id"] for p in b.found] and "77" not in json.loads(b.found_path.read_text())["posts"].__repr__()
 
 
 async def test_g_without_grok_empty_editor_queue_and_cancel(mk):

@@ -1,5 +1,5 @@
 """Sixel picture box never reaches the reserved controls rows, even for tall photos / unknown cell size."""
-import json, socket, threading, time
+import socket, threading, time
 from xbot import video
 
 

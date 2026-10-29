@@ -157,7 +157,7 @@ def test_edge_notify_throttled():
 
 
 async def test_h_hides_at_once_with_toast(mk):
-    from xbot.app import XBotApp, PostCard
+    from xbot.app import XBotApp
     b = mk(xonly=True, search=[P(10), P(11)], **S()); b.tick()
     app = XBotApp(bot=b, autostart=False)
     async with app.run_test(size=(140, 50)) as pilot:
@@ -177,7 +177,7 @@ async def test_edit_in_place_and_queue_click_opens_card(mk):
         lv = app.query_one("#queue", ListView); lv.focus(); lv.index = 1; await pilot.pause()
         did = app._selected()
         await pilot.press("e"); await pilot.pause()
-        inp = app.query_one("#qedit", Input)
+        inp = app.query_one("#qedit")
         assert inp.has_focus and inp.parent is lv.highlighted_child
         assert not any(isinstance(s, FoundPicker) for s in app.screen_stack)
         inp.value = "edited text"

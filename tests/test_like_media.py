@@ -1,7 +1,5 @@
-import json, socket, threading
-from PIL import Image as PILImage
 from xbot import video
-from xbot.app import XBotApp, PostCard
+from xbot.app import XBotApp
 from xbot.config import Config
 from tests.test_search import S
 from tests.test_media_layout import P

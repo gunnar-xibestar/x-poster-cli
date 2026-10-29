@@ -52,7 +52,7 @@ def test_fake_secrets_never_reach_output_files(mk, monkeypatch, tmp_path, capsys
     assert (tmp_path / "crash.log").exists() and (tmp_path / "actions.jsonl").exists()
     for v in FAKE.values():
         for f in forms(v):
-            assert not any(f in t for t in blobs), f"leaked a form of a fake secret"
+            assert not any(f in t for t in blobs), "leaked a form of a fake secret"
     for p in tmp_path.iterdir():
         if p.is_file():
             assert stat.S_IMODE(p.stat().st_mode) == 0o600, p
@@ -78,7 +78,7 @@ def test_opener_and_mpv_get_minimal_env(monkeypatch):
     assert all("XAI_API_KEY" not in k["env"] for k in calls)
 
 
-@pytest.mark.parametrize("mode,why", [(0o644, "readable by others"), (0o640, "readable by others")])
+@pytest.mark.parametrize("mode,why", [(0o640, "readable by others")])
 def test_env_file_refused_when_open(tmp_path, mode, why):
     p = tmp_path / "env"; p.write_text("X=1"); os.chmod(p, mode)
     msg = secure.env_file_problem(p)

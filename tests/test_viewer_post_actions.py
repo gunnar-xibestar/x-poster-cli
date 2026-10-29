@@ -33,6 +33,7 @@ def test_remove_advances_in_place_and_logs():
     assert [i["post_id"] for i in p.items] == ["2", "3", ] and p.pos() == 0 and p.current()["n"] == 2
     assert done.is_set() and "✓ @x muted" in p.msg
     assert any("requested" in l for l in logs) and any("playlist" in l for l in logs) and any("muted" in l for l in logs)
+    assert ["quit"] not in sent  # more posts left: the viewer stays open
 
 
 def test_slow_or_blocking_mute_does_not_hold_the_viewer():
@@ -148,12 +149,6 @@ def test_r_on_only_post_with_media_hides_then_closes_viewer():
     assert any("closing the viewer" in l for l in logs)
 
 
-def test_r_with_more_posts_does_not_quit():
-    p, pa, sent, _ = mk(remove=lambda it: "ok", run=lambda f: f())
-    pa.key("r")
-    assert ["quit"] not in sent
-
-
 async def test_r_on_only_media_post_returns_to_search_view(mk, monkeypatch):
     import contextlib
     from xbot import video
@@ -181,7 +176,7 @@ async def test_r_on_only_media_post_returns_to_search_view(mk, monkeypatch):
         app.query_one("#queue").focus()
         await pilot.press("f"); await pilot.pause()
         app.action_show_post(2); await pilot.pause()
-        card = app.screen
+        app.screen
         monkeypatch.setattr(app, "suspend", lambda: contextlib.nullcontext())
         await pilot.press("v"); await pilot.pause(); await pilot.pause()
         assert b.nav_order() == [1, 3]  # only the removed post is hidden

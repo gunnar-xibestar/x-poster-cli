@@ -16,6 +16,7 @@ def mk(tmp_path):
     def _mk(llm=None, mentions=None, search=None, clock=None, xonly=False, llm_factory=None, **cfg):
         cfg.setdefault("llm_rpm", 0)  # legacy tests assume unpaced Grok; pacing tests opt in
         cfg.setdefault("llm_auto_rpm", 0)
+        cfg.setdefault("draft_batch_migrated", True)  # tests set draft_batch explicitly
         cfg.setdefault("draft_batch", 1)  # legacy tests count one Grok call per post
         c = Config(**cfg)
         feed = []

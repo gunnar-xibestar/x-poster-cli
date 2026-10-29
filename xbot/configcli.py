@@ -1,11 +1,11 @@
 """`xbot config`: show or change ~/.config/xbot/config.json from the shell."""
-import json, os, subprocess, sys
-from dataclasses import asdict, fields
+import json, os, subprocess
+from dataclasses import fields
 from pathlib import Path
 from . import config as C
 
 SECRET_HINTS = ("key", "secret", "token", "password")
-SKIP = {"queue_size_migrated", "x_flags_migrated"}  # internal bookkeeping
+SKIP = {"queue_size_migrated", "x_flags_migrated", "draft_batch_migrated"}  # internal bookkeeping
 
 
 def _redact(k, v):

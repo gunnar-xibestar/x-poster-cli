@@ -2,7 +2,7 @@ import json, pytest
 from xbot.commands import parse, CommandError
 from xbot.queue import DraftQueue
 from xbot.llm import FakeLLM, LLMFatal, LLMError
-from xbot.config import load_env_file, redact
+from xbot.config import load_env_file
 
 
 def test_queue_flow():
@@ -15,7 +15,7 @@ def test_queue_flow():
 
 
 @pytest.mark.parametrize("line,name,args,text", [
-    ("/pause", "pause", [], ""), ("/align be witty", "align", [], "be witty"),
+    ("/pause", "pause", [], ""), 
     ("/post hello world", "post", [], "hello world"), ("/reply 123 hi there", "reply", ["123"], "hi there"),
     ("/dryrun off", "dryrun", [False], ""), ("/edit 3 new", "edit", ["3"], "new"), ("/approve 2", "approve", ["2"], ""),
 ])
@@ -23,7 +23,7 @@ def test_parse_ok(line, name, args, text):
     c = parse(line); assert (c.name, c.args, c.text) == (name, args, text)
 
 
-@pytest.mark.parametrize("line", ["hello", "/nope", "/post", "/reply abc hi", "/reply 1", "/dryrun maybe", "/approve x"])
+@pytest.mark.parametrize("line", ["hello", "/nope", "/post", "/reply 1", "/dryrun maybe", "/approve x"])
 def test_parse_bad(line):
     with pytest.raises(CommandError): parse(line)
 

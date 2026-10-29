@@ -1,6 +1,10 @@
 # Features
 
 - **Mentions + search suggestions** shown as cards in the feed (author, time, full text, metrics, link).
+  **F5 is first in first out:** saved posts (`found.json`, not hidden) are shown oldest first, 100 per F5
+  (`FEED_MAX` in `xbot/config.py`); once all were shown, F5 searches X and new posts join the end. Startup redraws
+  the current page. The cursor lives in `state.json` (`/clear` keeps it, `/feed reset` restarts from the oldest).
+  Serving saved posts makes no X search and no Grok drafting. The pane keeps at most 100 post lines.
 - **Reply drafting** in an editor, with an optional Grok-written first draft (`g` on a card).
 - **Auto-reply queue:** with Grok on, mentions get drafted replies, listed first, with their **own cap of 4** pending
   drafts (`/maxmentions n`, 0 = unlimited), separate from the 4-suggestion limit (panel title `N/4 mentions · x/4`,

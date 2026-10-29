@@ -1,5 +1,4 @@
-import subprocess
-from textual.widgets import Input, Static
+from textual.widgets import Input
 from xbot.commands import parse
 from xbot.opener import open_url
 from xbot.render import card_plain, card_renderable, feed_text, fmt_time

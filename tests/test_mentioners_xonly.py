@@ -1,6 +1,5 @@
 from textual.widgets import Input, SelectionList
 from xbot.app import XBotApp, MentionersEditor, ReplyEditor
-from xbot.commands import parse
 from test_search import P, S
 
 
@@ -118,7 +117,7 @@ def test_media_links_and_bracket_labels(mk):
     b = mk(xonly=True, search=[dict(posts[0], author_id="a", username="ua", conversation_id="5")], **S())
     opened = []; b.opener = lambda url, done: (opened.append(url), done("test"))
     b.tick()
-    line = [f for f in b.feed if "pic" in f]
+    assert [f for f in b.feed if "pic" in f]
     assert b.found[0]["media"] and not hasattr(b, "open_media")  # media never goes to the browser
     b.open_profile(1); assert opened == ["https://x.com/ua"]
     rec = {"ts": "2026-10-24T08:00:00", "kind": "found", "n": 1, "source": "search", "author": "ua", "snippet": "pic",

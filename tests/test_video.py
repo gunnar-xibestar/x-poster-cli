@@ -1,6 +1,4 @@
-import contextlib
 from xbot import video
-from xbot.app import XBotApp, PostCard, search_cli
 from xbot.config import Config
 from tests.test_search import S
 

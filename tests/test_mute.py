@@ -1,4 +1,3 @@
-import json
 import pytest
 from xbot.commands import parse
 from xbot.xapi import RealX, XError
@@ -98,7 +97,6 @@ def test_card_status_and_hint_wording(mk):
 
 async def test_found_list_has_section_headers(mk):
     from textual.widgets import ListView
-    from xbot.app import FoundPicker
     b = mk(xonly=True, mentions=[{"id": "1", "text": "@me [b]x[/b]", "author_id": "m", "username": "mm"}],
            search=[P(5)], **S()); b.tick()
     app = XBotApp(bot=b, autostart=False)

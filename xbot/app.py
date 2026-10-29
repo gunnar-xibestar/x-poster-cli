@@ -7,6 +7,7 @@ as DemoApp with fake data and a temp state dir.
 from pathlib import Path
 import asyncio
 import signal
+import threading
 from .textutil import clip
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -14,7 +15,6 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import SelectionList, TextArea
-from .tags import label_ids
 from .render import URL_HINT_RE
 from textual.widgets import Header, Footer, Input, RichLog, ListView, ListItem, Label, Static
 
@@ -116,7 +116,12 @@ class PostCard(EscModal):
     BINDINGS = [("escape", "dismiss", "Close"), ("o", "open", "Open in browser"), ("r", "reply", "Reply"),
                 ("t", "tags", "Filter posts like this"), ("h", "hide", "Hide for good"), ("v", "media", "View media (mpv)"), ("l", "like", "Like"), ("q", "filter_mentioner", "Filter mentioner"), ("g", "draft", "Draft reply"), ("b", "block", "Block author"), ("m", "mute", "Mute on X"),
                 ("left,up,k,a", "nav(-1)", "Prev"), ("right,down,j,d", "nav(1)", "Next"),
-                Binding("pageup", "scroll_text(-1)", "Scroll text", show=False), Binding("pagedown", "scroll_text(1)", "Scroll text", show=False)]
+                Binding("pageup", "scroll_text(-1)", "Scroll text", show=False), Binding("pagedown", "scroll_text(1)", "Scroll text", show=False),
+                Binding("home", "scroll_edge(-1)", "Top", show=False), Binding("end", "scroll_edge(1)", "Bottom", show=False)]
+
+    def action_scroll_edge(self, d):
+        sc = self.query_one("#card-scroll")
+        (sc.scroll_end if d > 0 else sc.scroll_home)(animate=False)
 
     def action_scroll_text(self, d):
         sc = self.query_one("#card-scroll")
@@ -140,10 +145,23 @@ class PostCard(EscModal):
         self._lookup()
 
     def _redraw(self):
-        self.query_one("#card", Static).update(card_renderable(self.n, self.post, self.app.bot))
-    DEFAULT_CSS = ("PostCard { align: center middle; } PostCard > #card-box { width: 90%; max-width: 130; height: auto; max-height: 95%; } "
-                                      "#card-scroll { width: 100%; height: auto; max-height: 100%; background: $panel; } "
+        bot = self.app.bot
+        self.query_one("#card", Static).update(card_renderable(self.n, self.post, bot, part="body"))
+        self.query_one("#card-hints", Static).update(card_renderable(self.n, self.post, bot, part="hints"))
+        title, style = card_renderable(self.n, self.post, bot, part="title")
+        box = self.query_one("#card-box")
+        box.border_title = title
+        try:
+            from textual.color import Color
+            Color.parse(style)
+            box.styles.border = ("round", style)
+        except Exception:
+            box.styles.border = ("round", "white")
+    DEFAULT_CSS = ("PostCard { align: center middle; } PostCard > #card-box { width: 90%; max-width: 130; height: auto; max-height: 95%; "
+                   "border: round $primary; border-title-align: left; background: $panel; padding: 1 1 0 1; } "
+                   "#card-scroll { width: 100%; height: auto; max-height: 1fr; background: $panel; } "
                    "#card { width: 100%; height: auto; background: $panel; } "
+                   "#card-hints { width: 100%; height: auto; background: $panel; border-top: solid $panel-lighten-2; } "
                    "PostCard { layers: base heart; } #heart { layer: heart; display: none; width: auto; height: auto; "
                    "background: $panel 0%; } #heart.on { display: block; }")
 
@@ -153,19 +171,23 @@ class PostCard(EscModal):
 
     def compose(self):
         with Vertical(id="card-box"):
-            with VerticalScroll(id="card-scroll"):  # long text scrolls here
-                yield Static(card_renderable(self.n, self.post, self.app.bot), id="card")
+            with VerticalScroll(id="card-scroll"):  # tall posts scroll here (wheel, PgUp/PgDn, Home/End)
+                yield Static(card_renderable(self.n, self.post, self.app.bot, part="body"), id="card")
+            yield Static(card_renderable(self.n, self.post, self.app.bot, part="hints"), id="card-hints")  # pinned
         yield Static("", id="heart")
 
     def _layout(self):
-        """The text scroll gets the whole card height (media is viewed in mpv, never inside the card)."""
+        """Body scroll gets the card height minus the pinned key-help footer, border and padding."""
         sc = self.query_one("#card-scroll")
-        sc.styles.max_height = max(4, int(max(8, int(self.app.size.height * 0.95))))
+        hints = self.query_one("#card-hints")
+        hh = (hints.virtual_size.height or hints.region.height or 4) + 1
+        sc.styles.max_height = max(3, int(self.app.size.height * 0.95) - hh - 3)
 
     def on_resize(self, ev):
         self._layout()
 
     def on_mount(self):
+        self._redraw()
         self._lookup()
 
     def _lookup(self):
@@ -298,16 +320,42 @@ class PostCard(EscModal):
                 self._redraw(); self.app.refresh_ui()
         self.app.push_screen(Confirm(f"Mute @{h} (real)? y/n  ({mode})"), after)
 
+    def _editor_after(self):
+        bot = self.app.bot
+        order = [str(bot.found_post(m)["id"]) for m in bot.nav_order()]  # ids: numbers shift when a post is removed
+        def after(r):
+            if r == "browser" or not any(str(p["id"]) == str(self.post["id"]) for p in bot.found):
+                self.next_after_browser(order)  # replied (browser or Ctrl+S): post removed, show the next
+            else:
+                self._redraw()
+        return after
+
+    def next_after_browser(self, old_order):
+        """Reply posted via the browser: close this card and open the next post in the list (none: back to list)."""
+        bot = self.app.bot
+        cur = str(self.post["id"])
+        now = {str(bot.found_post(m)["id"]): m for m in bot.nav_order()}
+        rest = old_order[old_order.index(cur) + 1:] if cur in old_order else []
+        nxt = next((now[i] for i in rest if i in now and i != cur), None)
+        app = self.app
+        self.dismiss()
+        if nxt is not None:
+            app.push_screen(PostCard(nxt, bot.found_post(nxt)))
+        def lists():  # open Found posts lists drop the replied post (and renumber)
+            for s in list(app.screen_stack):
+                if isinstance(s, FoundPicker):
+                    try:
+                        s.rebuild()
+                    except Exception as e:
+                        _crash_log(e)
+        app.call_after_refresh(lists)
+
     def action_draft(self):
-        def after(_):
-            self.query_one("#card", Static).update(card_renderable(self.n, self.post, self.app.bot))
-        self.app.push_screen(ReplyEditor(self.n, self.post), after)
+        self.app.push_screen(ReplyEditor(self.n, self.post), self._editor_after())
 
     def action_reply(self):
         """r: the reply editor like g, but blank (no Grok prefill), focus in its text box."""
-        def after(_):
-            self._redraw()
-        self.app.push_screen(ReplyEditor(self.n, self.post, blank=True), after)
+        self.app.push_screen(ReplyEditor(self.n, self.post, blank=True), self._editor_after())
 
 
 class Confirm(EscModal):
@@ -450,7 +498,9 @@ class ReplyEditor(EscModal):
         url = self.intent_url()
         self.app.bot.log.event("info", f"opened X reply page for #{self.n} with draft filled in")
         open_url_async(url, lambda how: None)
-        self._update_info("[cyan]opened X reply with your draft, review and post there[/]")
+        self.app.bot.browser_reply_to_found(self.n, self.text, grok_text=self.grok_text)
+        self.app.notify("Reply opened in browser and saved; showing the next post.", timeout=4)
+        self.dismiss("browser"); self.app.refresh_ui()
 
     def action_cancel(self):
         self.dismiss(None)
@@ -765,6 +815,39 @@ class HiddenPicker(EscModal):
             self.bot.log.event("info", f"opened hidden post {label} in browser")
 
 
+class SearchHistoryPicker(EscModal):
+    """h: past searches (newest first). Enter/click picks one, Esc closes."""
+    BINDINGS = [Binding("escape", "dismiss", "Close")]
+    DEFAULT_CSS = ("SearchHistoryPicker { align: center middle; } SearchHistoryPicker > ListView { width: 80%; height: 70%; "
+                   "border: round $accent; background: $panel; }")
+
+    def __init__(self, bot):
+        super().__init__()
+        from . import search_history
+        self.items = search_history.load(bot.state_dir)
+
+    def compose(self):
+        yield ListView(id="search-history")
+
+    def on_mount(self):
+        from rich.markup import escape
+        lv = self.query_one(ListView)
+        lv.border_title = f"Search history ({len(self.items)})"
+        lv.border_subtitle = "enter/click use · esc close"
+        if not self.items:
+            lv.append(ListItem(Label(Text.from_markup("[dim]No searches yet. Use /search <query>.[/]"))))
+        for i, q in enumerate(self.items):
+            lv.append(ListItem(Label(escape(q)), name=str(i)))
+        if self.items:
+            lv.index = 0
+        lv.focus()
+
+    def on_list_view_selected(self, ev):
+        ev.stop()
+        if ev.item is not None and ev.item.name is not None:
+            self.dismiss(self.items[int(ev.item.name)])
+
+
 class FoundPicker(EscModal):
     BINDINGS = [("escape", "dismiss", "Close")]
     DEFAULT_CSS = ("FoundPicker { align: center middle; } FoundPicker > ListView { width: 90%; max-width: 160; height: 85%; "
@@ -802,7 +885,7 @@ class FoundPicker(EscModal):
 
     def rebuild(self):
         """Posts were hidden: list only the visible ones again (or close when none are left)."""
-        self.found = self.app.bot.visible_found()
+        self.found = self.app.bot.feed_found()
         if not self.found:
             if self.app.screen is self:
                 self.dismiss()
@@ -838,6 +921,43 @@ class QueueList(ListView):
             self.index = self._nodes.index(event.item)
         except ValueError:
             pass
+
+
+class QEdit(TextArea):
+    """In-place reply editor inside the highlighted queue card (wraps, multi-line display).
+    Enter or Ctrl+S saves, Esc cancels. `.value` aliases `.text` (same API as the old Input editor)."""
+    BINDINGS = [Binding("enter", "save", "Save", priority=True), Binding("ctrl+s", "save", "Save", priority=True),
+                Binding("escape", "cancel", "Cancel", priority=True)]
+    DEFAULT_CSS = "QEdit { height: auto; min-height: 3; max-height: 14; border: round $accent; }"
+
+    COMPONENT_CLASSES = set(TextArea.COMPONENT_CLASSES)  # keep TextArea's (gutter, cursor, selection, ...)
+
+    def __init__(self, value="", **kw):
+        super().__init__(value, soft_wrap=True, show_line_numbers=False, **kw)
+
+    def get_component_rich_style(self, *names, partial=False, default=None):
+        """Textual clears _component_styles when the editor is removed (save/cancel) but a frame already queued
+        can still render it: TextAreaTheme.apply_css then raised KeyError 'text-area--gutter' and killed the app.
+        Missing component styles fall back to a plain Style instead."""
+        from rich.style import Style
+        try:
+            return super().get_component_rich_style(*names, partial=partial, default=default)
+        except KeyError:
+            return default if default is not None else Style()
+
+    @property
+    def value(self):
+        return self.text
+
+    @value.setter
+    def value(self, v):
+        self.text = v
+
+    def action_save(self):
+        self.app._qedit_save(self.text)
+
+    def action_cancel(self):
+        self.app._qedit_cancel()
 
 
 class CmdInput(Input):
@@ -934,18 +1054,48 @@ class FeedLog(RichLog):
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self._items, self._wrapped_at = [], None
+        self._items, self._posts, self._wrapped_at = [], [], None
+        from .config import FEED_MAX
+        self.max_posts = FEED_MAX  # post lines kept in the feed; the oldest drop off as new ones arrive
 
-    def write(self, content, *a, **k):
+    def _drop_oldest_posts(self):
+        """More than max_posts post lines: drop the oldest ones and redraw the kept lines."""
+        extra = sum(self._posts) - self.max_posts
+        keep_i, keep_p = [], []
+        for it, p in zip(self._items, self._posts):
+            if p and extra > 0:
+                extra -= 1; continue
+            keep_i.append(it); keep_p.append(p)
+        self._items, self._posts = keep_i, keep_p
+        self._redraw()
+
+    def _redraw(self):
+        w = self.scrollable_content_region.width if self._size_known else 0
+        items, end = list(self._items), self.is_vertical_scroll_end
+        super().clear()
+        self._rewrapping = True
+        try:
+            for it in items:
+                super().write(it, scroll_end=False, **({"width": w} if w > 0 else {}))
+        finally:
+            self._rewrapping = False
+        if end:
+            self.scroll_end(animate=False)
+        return self
+
+    def write(self, content, *a, post=False, **k):
         if not getattr(self, "_rewrapping", False):
-            self._items.append(content); self._items = self._items[-self.KEEP:]
+            self._items.append(content); self._posts.append(post)
+            self._items, self._posts = self._items[-self.KEEP:], self._posts[-self.KEEP:]
+            if post and sum(self._posts) > self.max_posts > 0:
+                return self._drop_oldest_posts()
             w = self.scrollable_content_region.width
             if self._size_known and w > 0 and not a and "width" not in k:
                 k["width"] = w  # wrap at the pane's real width (not the 80-col default measure)
         return super().write(content, *a, **k)
 
     def clear(self):
-        self._items = []
+        self._items, self._posts = [], []
         return super().clear()
 
     def on_resize(self, ev):
@@ -971,6 +1121,10 @@ class XBotApp(App):
     #queue { height: auto; max-height: 100%; }
     #queue ListItem { padding: 0 1 1 1; }
     #queue ListItem Label { width: 100%; }
+    #queue ListItem .qfull, #queue ListItem .qreply { display: none; }
+    #queue ListItem.-highlight .qcompact { display: none; }
+    #queue ListItem.-highlight .qfull, #queue ListItem.-highlight .qreply { display: block; }
+    #queue ListItem.editing .qreply { display: none; }
     #queue .qhdr { opacity: 100%; }
     #queue .qhdr { padding: 1 0 0 0; }
     #queue-empty { color: $text-muted; padding: 1; }
@@ -978,14 +1132,14 @@ class XBotApp(App):
     #main { height: 1fr; }
     #left { width: 2fr; }
     #left > #feed { width: 100%; height: 1fr; }
-    #console-box { height: 12; border: round $accent; }
+    #console-box { height: 24; max-height: 45%; min-height: 6; border: round $accent; }
     #console-box.hidden { display: none; }
     #console { height: 1fr; overflow-x: hidden; }
     """
     BINDINGS = [("a", "approve", "Approve"), ("r", "reject", "Reject"), ("e", "edit", "Edit"),
                 ("m", "mentioners", "Mentioners list"), ("o", "open_queued", "Open post"),
                 Binding("x", "clear_suggested", "Clear suggested", show=False), Binding("X", "clear_mentions", "Clear mentions", show=False),
-                ("p", "toggle_pause", "Pause/Resume"), ("f", "found", "Found posts"),
+                ("p", "toggle_pause", "Pause/Resume"), ("f", "found", "Found posts"), ("h", "search_history", "Search history"),
                 Binding("f3", "toggle_console", "Console"),
                 Binding("slash", "slash", "Command", show=False),
                 Binding("f5", "tick", "Refresh feed + catalog"), Binding("f2", "filter_view", "Filters"), Binding("f6", "switch_focus", "Switch pane"),
@@ -1031,10 +1185,24 @@ class XBotApp(App):
 
     FEED_KINDS = ("found",)
 
+    def _ui(self, fn, *a):
+        """Run a widget mutation on the Textual loop thread (direct when already there or app not running)."""
+        if not self.is_running or getattr(self, "_thread_id", None) in (None, threading.get_ident()):
+            return fn(*a)
+        try:
+            return self.call_from_thread(fn, *a)
+        except RuntimeError:  # loop shutting down
+            return None
+
     def _route(self, rec):
-        """X posts go to the top feed; everything else (output, errors, /help) to the console."""
+        """X posts go to the top feed; everything else (output, errors, /help) to the console (thread-safe)."""
+        if self.is_running and getattr(self, "_thread_id", None) not in (None, threading.get_ident()):
+            return self._ui(self._route, rec)
         w = self._feed_log if rec.get("kind") in self.FEED_KINDS else self._console_log
-        w.write(feed_text(rec))
+        if w is self._feed_log and isinstance(w, FeedLog):
+            w.write(feed_text(rec), post=rec.get("kind") == "found" and bool(rec.get("tweet_id")))
+        else:
+            w.write(feed_text(rec))
 
     @property
     def console_visible(self):
@@ -1073,7 +1241,7 @@ class XBotApp(App):
             from .llm import GrokLLM, LLMFatal
             warns = load_env_file()
             cfg = Config.load()
-            log = ActionLog(sink=feed.write)
+            log = ActionLog(sink=lambda t: self._ui(feed.write, t))
             log.rich_sink = self._route
             for w in warns: log.event("warn", w)
             if cfg.load_error: log.event("error", cfg.load_error)
@@ -1088,9 +1256,9 @@ class XBotApp(App):
             self.bot = Bot(cfg, llm, DryRunX(), log, real_x_factory=RealX, save_config=cfg.save,
                            llm_factory=llm_factory)
         else:
-            self.bot.log.sink = feed.write
+            self.bot.log.sink = lambda t: self._ui(feed.write, t)
             self.bot.log.rich_sink = self._route
-        self.bot.on_clear_feed = self._on_clear_feed
+        self.bot.on_clear_feed = lambda: self._ui(self._on_clear_feed)
         self.bot.on_limit_exit = self._limit_exit
         if getattr(self.bot, "limit_exit", None):
             self._limit_exit(self.bot.limit_exit)
@@ -1200,11 +1368,16 @@ class XBotApp(App):
                     head += f"  [dim]to[/] [bold bright_cyan]@{escape(str(who))}[/]"
                 if n:
                     head += f"  [dim]post #{n}[/]"
-                lines = [head]
+                compact, full = [head], [head]
                 if d.context:
-                    lines.append(f"[dim]re:[/] [grey62]{escape(clip(d.context, 90))}[/]")
-                lines.append(f"[bold green]›[/] {escape(d.text)}")
-                out.append(ListItem(Label(Text.from_markup("\n".join(lines))), name=str(d.id)))
+                    compact.append(f"[dim]re:[/] [grey62]{escape(clip(d.context, 90))}[/]")
+                    full.append(f"[dim]re:[/] [grey70]{escape(d.context)}[/]")
+                compact.append(f"[bold green]›[/] {escape(clip(d.text, 140))}")
+                # selected card expands (CSS on -highlight): full post text + full reply; `e` edits the reply in place
+                out.append(ListItem(Label(Text.from_markup("\n".join(compact)), classes="qcompact"),
+                                    Label(Text.from_markup("\n".join(full)), classes="qfull"),
+                                    Label(Text.from_markup(f"[bold green]›[/] {escape(d.text)}"), classes="qreply"),
+                                    name=str(d.id)))
         return out
 
     def _selected(self):
@@ -1233,6 +1406,9 @@ class XBotApp(App):
                         self.push_screen(TopicWords(self.bot, fa[1].lower())); return
             if c.name == "show":
                 self.bot.found_post(c.args[0]); self.action_show_post(c.args[0]); return
+            if c.name == "tick" and self.is_running:
+                # /tick (F5) hits X and Grok (sync HTTP, up to 60s per call): never on the event loop
+                self._tick_in_thread(c); return
             self.bot.handle(c)
         except (CommandError, KeyError, ValueError) as e:
             self.bot.log.event("error", f"{line!r}: {e}")
@@ -1240,6 +1416,27 @@ class XBotApp(App):
             self.bot.log.event("warn", f"{line.split()[0]} failed: {type(e).__name__}: {str(e)[:120]}; try again")
         if self.bot.stopped:
             self.shutdown(); self.exit()
+        self.refresh_ui()
+
+    def _tick_in_thread(self, c):
+        if getattr(self, "_tick_running", False):
+            self.notify("check already running…", timeout=2); return
+        self._tick_running = True
+        self.bot.log.event("info", "refreshing (F5)…")
+
+        async def go():
+            try:
+                await asyncio.to_thread(self.bot.handle, c)
+            except (CommandError, KeyError, ValueError) as e:
+                self.bot.log.event("error", f"/tick: {e}")
+            except Exception as e:  # never crash the TUI (network error escaping a check)
+                self.bot.log.event("warn", f"/tick failed: {type(e).__name__}: {str(e)[:120]}; try again")
+            finally:
+                self._tick_running = False
+            if self.bot.stopped:
+                self.shutdown(); self.exit(); return
+            self.refresh_ui()
+        self.run_worker(go(), group="tick", exclusive=True)
         self.refresh_ui()
 
     def on_list_view_selected(self, ev):
@@ -1491,7 +1688,7 @@ class XBotApp(App):
 
     def action_found(self):
         if self._not_typing():
-            self.push_screen(FoundPicker(self.bot.visible_found()))
+            self.push_screen(FoundPicker(self.bot.feed_found()))
 
     def _fatal_error(self):
         """Unhandled exception: full traceback to crash.log, one clean line on exit (no rich traceback)."""
@@ -1560,7 +1757,7 @@ class XBotApp(App):
         self.shutdown()
 
     def _not_typing(self):
-        return not isinstance(self.focused, Input)
+        return not isinstance(self.focused, (Input, TextArea))
 
     def action_approve(self):
         if self._not_typing() and (d := self._selected()):
@@ -1587,6 +1784,18 @@ class XBotApp(App):
 
     def action_reject(self):
         if self._not_typing() and (d := self._selected()): self._run(f"/reject @{d}")
+
+    def action_search_history(self):
+        """h while not typing: pick a past search; Enter fills the input with /search <query>."""
+        if not self._not_typing():
+            return
+        def done(q):
+            if not q:
+                return
+            self.show_console(True)
+            inp = self.query_one("#cmd", Input)
+            inp.value = f"/search {q}"; inp.cursor_position = len(inp.value); inp.focus()
+        self.push_screen(SearchHistoryPicker(self.bot), done)
 
     def action_tick(self):
         self._run("/tick")
@@ -1626,13 +1835,34 @@ class XBotApp(App):
             old[0].focus(); return  # e again on the same draft: keep the open editor
         await self._drop_qedit()  # never two Input#qedit (DuplicateIds): an editor left open on another draft/list
         self._editing = d
-        inp = Input(value=self.bot.queue.get(d).text, id="qedit", placeholder=f"editing #{d}: enter save")
-        item.mount(inp)
+        inp = QEdit(self.bot.queue.get(d).text, id="qedit")
+        inp.border_subtitle = f"editing #{d} · enter/ctrl+s save · esc cancel"
+        item.add_class("editing")
+        await item.mount(inp)
+        inp.move_cursor(inp.document.end)
         inp.focus()
+
+    def _qedit_save(self, text):
+        did, self._editing = self._editing, None
+        val = " ".join(text.split()) if "\n" not in text.strip() else text.strip()
+        self._drop_qedit()
+        if did is not None and val:
+            self._run(f"/edit @{did} {val}")
+        else:
+            self.refresh_ui()
+        self.query_one("#queue", ListView).focus()
+
+    def _qedit_cancel(self):
+        self._editing = None
+        self._drop_qedit()
+        self.refresh_ui()
+        self.query_one("#queue", ListView).focus()
 
     def _drop_qedit(self):
         """Remove every on-demand draft editor (Esc, Enter, before mounting a new one). Returns an awaitable
         that completes once they are gone (so a new Input#qedit can't collide with the old one)."""
+        for it in self.query("ListItem.editing"):
+            it.remove_class("editing")
         return self.query("#qedit").remove()
 
     def on_key(self, ev):
@@ -1644,9 +1874,34 @@ class XBotApp(App):
             self.query_one("#queue", ListView).focus()
 
 
+CLI_SUBCOMMANDS = ("login", "sample", "fix-perms", "secrets", "config", "search")
+USAGE = """usage: xbot [--insecure-perms] [command] [args]
+
+With no command, starts the terminal UI (X feed, Grok drafts, reply queue).
+
+commands:
+  help, -h, --help     show this help and exit
+  login                X OAuth 2.0 login (bookmarks/likes scopes)
+  config [key value]   show or set config (~/.config/xbot/config.json)
+  secrets ...          edit keys in ~/.config/xbot/env
+  search ...           one-off X search in the terminal (see `xbot search --help`)
+  sample ...           demo with sample data (no keys, no network)
+  fix-perms            tighten permissions on ~/.config/xbot and ~/.local/state/xbot
+
+options:
+  --insecure-perms     start even if the env file permissions are too open
+
+Inside the UI, type /help for commands."""
+
+
 def main(argv=None):
     import sys
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in ("-h", "--help", "help"):  # before anything touches config, state, network or the TUI
+        print(USAGE); raise SystemExit(0)
+    if argv and argv[0].startswith("-") and argv[0] != "--insecure-perms" or argv and not argv[0].startswith("-") \
+            and argv[0] not in CLI_SUBCOMMANDS:
+        print(f"xbot: unknown argument {argv[0]!r}\n\n{USAGE}", file=sys.stderr); raise SystemExit(2)
     from . import secure
     from .config import CONFIG_DIR, STATE_DIR
     secure.install()
@@ -1752,6 +2007,13 @@ def search_cli(argv, x=None, cfg=None, out=print, play=None, which=None):
     try:
         x = x or RealX()
         posts = x.search_recent(a.query, max(10, cfg.search_max_results))
+        try:
+            import os
+            from . import search_history
+            from .config import STATE_DIR
+            search_history.add(os.environ.get("XBOT_STATE_DIR") or STATE_DIR, a.query)
+        except Exception:
+            pass
     except Exception as e:
         from .config import redact
         out(f"xbot search: {redact(str(e))[:200]}"); return 1
@@ -1788,6 +2050,9 @@ def _crash(e):
 def _crash_log(e):
     """Write the full traceback to crash.log; return one clean line for stderr."""
     import traceback, time
+    inner = getattr(e, "error", None)  # Textual WorkerFailed: the real exception (and traceback) is .error
+    if isinstance(inner, BaseException):
+        e = inner
     from .config import STATE_DIR, redact
     p = Path(STATE_DIR) / "crash.log"
     try:

@@ -1,5 +1,5 @@
 """xbot reads the tty itself and forwards keys to mpv over IPC; mouse/focus/paste reports are dropped."""
-import json, os, socket, threading, time
+import json, os, socket, time
 from xbot import video
 
 
@@ -50,7 +50,7 @@ def test_run_mpv_modes_off_before_launch_and_keys_via_ipc(tmp_path, monkeypatch)
     import pty, termios
     master, slave = pty.openpty()
     name = os.ttyname(slave)
-    before = termios.tcgetattr(slave)
+    termios.tcgetattr(slave)
     order, seen = [], []
     real_write = os.write
     def run(argv, **k):

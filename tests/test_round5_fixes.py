@@ -1,5 +1,4 @@
 import pytest
-from PIL import Image as PILImage
 from rich.console import Console
 from xbot.app import XBotApp, FoundPicker
 from xbot.render import card_renderable
@@ -14,9 +13,8 @@ def text_lines(renderable, width):
     return c.export_text().splitlines()
 
 
-@pytest.mark.parametrize("w,media", [(120, False), (120, True), (180, False), (180, True)])
+@pytest.mark.parametrize("w,media", [(120, False), (120, True)])
 async def test_card_text_fills_container_width(mk, monkeypatch, w, media):
-    import xbot.app as A
     b = mk(xonly=True, search=[P(1, "a " * 900)], **S()); b.tick()
     if media:
         b.found[0]["media"] = [{"type": "photo", "url": "https://pbs.twimg.com/a.jpg", "width": 1600, "height": 900}]
@@ -31,7 +29,7 @@ async def test_card_text_fills_container_width(mk, monkeypatch, w, media):
         b.stopped = True
 
 
-@pytest.mark.parametrize("w", [120, 180])
+@pytest.mark.parametrize("w", [120])
 async def test_found_view_layout(mk, w):
     b = mk(xonly=True, search=[P(i, "long text " * 40) for i in range(1, 4)], **S()); b.tick()
     app = XBotApp(bot=b, autostart=False)

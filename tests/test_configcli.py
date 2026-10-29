@@ -1,4 +1,4 @@
-import json, os
+import json
 from xbot.configcli import cli
 from xbot.config import Config
 

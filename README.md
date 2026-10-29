@@ -94,6 +94,18 @@ See [Media playback](docs/MEDIA_PLAYBACK.md) for the in-terminal photo and video
 - [Troubleshooting](docs/TROUBLESHOOTING.md): common errors and fixes
 - [Reference](docs/REFERENCE.md): full reference for everything
 
+## Development
+
+```
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt   # app deps (requirements.txt) + pytest, pytest-asyncio, -xdist, -timeout
+.venv/bin/python -m pytest -q -n auto --timeout=30   # parallel (~15s); plain `pytest -q` runs serially (~100s)
+ruff check xbot tests                                # lint (rules in ruff.toml)
+```
+
+`pytest.ini` sets `asyncio_mode = auto` and `pythonpath = .`; run tests from the repo root. A copy of the
+project needs `requirements.txt`, `requirements-dev.txt`, `pytest.ini` and `ruff.toml` next to `xbot/` and `tests/`.
+
 ## Uninstall
 ```bash
 ./install.sh --uninstall          # removes launcher and .venv, keeps keys/state

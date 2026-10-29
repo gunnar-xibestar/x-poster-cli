@@ -1,4 +1,5 @@
-from textual.widgets import Input, ListView
+from textual.widgets import ListView
+from xbot.app import QEdit
 import xbot.sample as S
 
 
@@ -19,7 +20,7 @@ async def test_edit_never_mounts_two_qedit(tmp_path):
         assert await _count(app, pilot) == 1
         q.focus(); await pilot.pause()  # editor left open, focus back on the list (mouse click)
         await app.run_action("edit")  # e again on the same draft: reuse
-        assert await _count(app, pilot) == 1 and isinstance(app.focused, Input)
+        assert await _count(app, pilot) == 1 and isinstance(app.focused, QEdit)
         q.focus(); q.index = 2; await pilot.pause()
         await app.run_action("edit")  # another draft while one is open: the old one goes first
         assert await _count(app, pilot) == 1

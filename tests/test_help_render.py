@@ -1,8 +1,8 @@
 import pytest
 from rich.text import Text
 from xbot.commands import parse, CommandError, COMMANDS
-from xbot.help import render_help, render_cmd, INDEX, SECTIONS
-from xbot.render import feed_markup, feed_text, status_markup
+from xbot.help import render_help, render_cmd, INDEX
+from xbot.render import feed_text, status_markup
 from xbot.app import XBotApp
 from tests.test_search import P, S
 

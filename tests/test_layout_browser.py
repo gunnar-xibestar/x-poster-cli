@@ -1,5 +1,5 @@
 from textual.widgets import TextArea, RichLog, Input
-from xbot.app import XBotApp, ReplyEditor, PostCard, FoundPicker
+from xbot.app import XBotApp, PostCard, FoundPicker
 from tests.test_search import P, S
 
 
@@ -55,11 +55,12 @@ async def test_g_queue_then_o_opens_prefilled(mk):
     async with app.run_test(size=(140, 50)) as pilot:
         b.tick(); app.action_show_post(1); await pilot.pause()
         await pilot.press("g"); await pilot.pause()
-        ed = app.screen; ed.query_one(TextArea).text = "hello there"; await pilot.pause()
+        ed = app.screen; ta = ed.query_one(TextArea); ta.text = "first"; await pilot.pause()
+        ta.text = "hello there"; await pilot.pause()  # edited after Grok/first text: the user's text wins
         await pilot.press("ctrl+e"); await pilot.pause()
         assert isinstance(app.screen, PostCard)
         await pilot.press("o"); await pilot.pause()
-        assert urls and "intent/post" in urls[-1] and "hello%20there" in urls[-1]
+        assert urls and "intent/post" in urls[-1] and "hello%20there" in urls[-1] and "first" not in urls[-1]
 
 
 async def test_ctrl_b_in_editor_opens_prefilled(mk, monkeypatch):
@@ -89,23 +90,11 @@ async def test_a_after_inplace_edit_uses_edited_text(mk):
         b.tick(); b.queue_reply_to_found(1, "orig"); app.refresh_ui(); await pilot.pause()
         app.query_one("#queue").focus(); await pilot.pause()
         await pilot.press("e"); await pilot.pause()
-        q = app.query_one("#qedit", Input); q.value = "edited text"
+        q = app.query_one("#qedit"); q.value = "edited text"
         await pilot.press("enter"); await pilot.pause()
         app.query_one("#queue").focus(); await pilot.pause()
         await pilot.press("a"); await pilot.pause()
         assert urls and "edited%20text" in urls[-1] and "orig" not in urls[-1]
-
-
-async def test_g_edit_after_grok_then_o_uses_user_text(mk):
-    b, app, urls = _app(mk)
-    async with app.run_test(size=(140, 50)) as pilot:
-        b.tick(); app.action_show_post(1); await pilot.pause()
-        await pilot.press("g"); await pilot.pause()
-        ta = app.screen.query_one(TextArea); ta.text = "first"; await pilot.pause()
-        ta.text = "user edited"; await pilot.pause()
-        await pilot.press("ctrl+e"); await pilot.pause()
-        await pilot.press("o"); await pilot.pause()
-        assert "user%20edited" in urls[-1] and "first" not in urls[-1]
 
 
 async def test_popups_show_esc_hint_top_left(mk):

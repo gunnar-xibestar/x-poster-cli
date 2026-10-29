@@ -1,4 +1,4 @@
-from textual.widgets import Input, ListView
+from textual.widgets import ListView
 import xbot.sample as S
 
 
@@ -34,7 +34,7 @@ async def test_click_and_o_in_open_editor_keep_editing(tmp_path):
         q = app.query_one("#queue", ListView)
         q.focus(); q.index = 1; await pilot.pause()
         await pilot.press("e"); await pilot.pause()
-        ed = app.query_one("#qedit", Input)
+        ed = app.query_one("#qedit")
         await pilot.click(ed); await pilot.pause()
         assert not opened and app.focused is ed and len(app.query("#qedit")) == 1
         before = ed.value

@@ -25,7 +25,6 @@ def feed_markup(rec) -> str:
     h = _hdr(rec)
     if k == "found" and "author" in rec:
         src = rec.get("source") or "?"
-        tid = rec.get("tweet_id", "")
         rep = " [green]✓replied[/]" if rec.get("replied") else ""
         if rec.get("tags"):
             rep = " " + " ".join(f"[magenta]#{escape(t)}[/]" for t in rec["tags"]) + rep
@@ -39,7 +38,7 @@ def feed_markup(rec) -> str:
             line = f"[dim]{line} [italic grey62]blocked (local)[/][/]"
         return line
     if k == "filter" and "topics_on" in rec:
-        G, Y, M, C, D = "bold green", "bold yellow", "magenta", "bold cyan", "dim"
+        G, Y, C, D = "bold green", "bold yellow", "bold cyan", "dim"
         st = "[bold black on green] ON [/]" if rec.get("on") else "[bold white on red] OFF [/] [dim](nothing below applies)[/]"
         def q(x): return chr(34) + x + chr(34) if " " in x else x
         def chips(xs, style, label="", lw=24, width=78):
@@ -77,7 +76,7 @@ def feed_markup(rec) -> str:
                 hint("remove", Y, "/filter show @someone"), "",
                 f"  [{D}]see what got hidden and why:[/]  [{G}]/hidden[/]",
                 f"  [{D}]pause all:[/]                    [{G}]/filter off[/]", "",
-                f"  [bold cyan]Edit a broad topic's words[/]",
+                "  [bold cyan]Edit a broad topic's words[/]",
                 hint("pick", G, "/filter edit", f"[{D}]one topic[/] [{G}]/filter edit adult[/]"),
                 hint("add", G, "/filter edit war +drone", f"[{D}]phrase[/] [{G}]/filter edit war +'drone strike'[/]"),
                 hint("remove", Y, "/filter edit war -russia"),
@@ -90,7 +89,7 @@ def feed_markup(rec) -> str:
         out = [h + f"[bold cyan]Topic {escape(rec['topic'])}[/] ({st})",
                f"  [dim]matches:[/] {ws or '[dim](no words)[/]'}"]
         if rec.get("removed"):
-            out.append(f"  [dim]you removed:[/] " + "  ".join(f"[strike grey62]{q(w)}[/]" for w in rec["removed"]))
+            out.append("  [dim]you removed:[/] " + "  ".join(f"[strike grey62]{q(w)}[/]" for w in rec["removed"]))
         out += ["", f"    [dim]add    [/][bold green]/filter edit {escape(rec['topic'])} +drone[/]",
                 f"    [dim]remove [/][bold yellow]/filter edit {escape(rec['topic'])} -russia[/]",
                 f"    [dim]undo   [/][bold yellow]/filter reset {escape(rec['topic'])}[/]",
@@ -222,7 +221,7 @@ def drafts_title(bot):
     cap += f" · waiting {w}" if w else ""
     st = bot.drafting_status() if hasattr(bot, "drafting_status") else ""
     cap += f" · {st}" if st else ""
-    return f"Auto replies (Grok drafts) " + (f"{nm}/{mc} mentions · " if nm and mc else f"{nm} mentions · " if nm else "") + cap
+    return "Auto replies (Grok drafts) " + (f"{nm}/{mc} mentions · " if nm and mc else f"{nm} mentions · " if nm else "") + cap
 
 
 def drafts_placeholder(bot):
@@ -238,7 +237,9 @@ def _key(k, bg="bright_white"):
     return f"[bold black on {bg}] {escape(k)} [/]"
 
 
-def card_renderable(n, p, bot=None):
+def card_renderable(n, p, bot=None, part="all"):
+    """Post detail panel. part='body' -> scrollable body only (no hints, no border), 'hints' -> key help
+    Text, 'title' -> (title markup, border style); 'all' -> the full bordered Panel."""
     from rich.panel import Panel
     from rich.console import Group
     from rich.padding import Padding
@@ -305,10 +306,15 @@ def card_renderable(n, p, bot=None):
         Text(""),
         Text.from_markup(status),
         Text.from_markup(link),
-        Rule(style="dim"),
-        Text.from_markup(hints),
     ]
+    if part == "hints":
+        return Padding(Text.from_markup(hints), (0, 1))  # renderable wrapper: Static keeps rich styles as-is
+    if part == "body":
+        return Padding(Group(*parts), (0, 1, 0, 1))
+    parts += [Rule(style="dim"), Text.from_markup(hints)]
     title = f"[bold]#{n}[/] [{sstyle}]{escape(src)}[/]" + (f" [dim]·[/] [bold]{pos}[/]" if pos else "")
+    if part == "title":
+        return title, sstyle
     return Panel(Group(*parts), title=title, title_align="left", border_style=sstyle, padding=(1, 1, 1, 2), expand=True)
 
 

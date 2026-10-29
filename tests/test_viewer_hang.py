@@ -45,7 +45,6 @@ def test_hung_ipc_watchdog_fires_and_sends_never_block():
     t.start()
     assert hung.wait(3)  # mpv (theirs) never answers -> watchdog
     # a full socket: sends time out instead of blocking forever
-    lk = threading.Lock()
     ours.settimeout(video.IPC_TIMEOUT)
     t0 = time.monotonic()
     try:

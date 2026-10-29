@@ -1,7 +1,7 @@
-import json, threading, urllib.request, stat
+import urllib.request, stat
 import pytest
 from xbot import oauth2
-from xbot.app import XBotApp, PostCard
+from xbot.app import XBotApp
 from xbot.xapi import XError
 from tests.test_search import S
 from tests.test_card_open import rich_post

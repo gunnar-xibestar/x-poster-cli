@@ -1,7 +1,7 @@
 from xbot.app import XBotApp, PostCard
 from xbot.bot import Bot
 from xbot.llm import FakeLLM
-from xbot.render import drafts_title, card_plain
+from xbot.render import drafts_title
 from tests.test_search import P, S
 from tests.test_card_open import rich_post
 

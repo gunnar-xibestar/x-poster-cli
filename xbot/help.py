@@ -16,13 +16,13 @@ SECTIONS = {
         ("model", "<name>", "Switch the xAI model", "/model grok-4.7", "Saved to config.json; used on the next draft."),
     ],
     "Search & found": [
-        ("search", "<query>", "Set the X recent-search query", '/search (rust OR golang) -is:retweet lang:en', "X v2 search syntax. Resets since_id. Costs $0.005 per returned post when reads are live."),
+        ("search", "<query>|help", "Set the X recent-search query (/search help or bare /search: operator tips, query unchanged)", '/search (rust OR golang) -is:retweet lang:en', "X v2 search syntax. Resets since_id. Costs $0.005 per returned post when reads are live."),
         ("searchon", "", "Turn auto-search on", "/searchon", "Search runs every search_every_n_ticks polls while the app is open."),
         ("searchoff", "", "Turn auto-search off", "/searchoff", "Mentions are still polled."),
         ("backfill", "on|off", "Fill short searches with older posts", "/backfill on", "When a search returns fewer than max_results new usable posts, one extra call fetches older posts (until_id = oldest seen). Same filters and read cost; header shows ' · N older'. X recent search only covers the last 7 days. Default on."),
         ("maxresults", "<10-100>", "Results per search call", "/maxresults 10", "X minimum is 10. Higher = more read cost."),
         ("found", "[n|mentions|search]", "List all found posts, a filtered group, or #n in detail", "/found mentions", "Without args: all mentions, then all suggested replies. With n: full text, time, link and reply hint."),
-        ("show", "<n>", "Show found post #n as a post card", "/show 3", "Card: name/@handle, time (America/Los_Angeles), full text, likes/reposts/replies/quotes, source, link. Keys: ←/→ ↑/↓ a/d j/k previous/next post (mentions then suggestions, hidden skipped; header shows n/total), g draft reply (editor: Ctrl+S send, Ctrl+E queue, Ctrl+G regenerate, Esc cancel), Esc close, o open in browser, r reply, t pick this post's tags to hide (same exclusion as /topics)."),
+        ("show", "<n>", "Show found post #n as a post card", "/show 3", "Card: name/@handle, time (America/Los_Angeles), full text, likes/reposts/replies/quotes, source, link. Keys: ←/→ ↑/↓ a/d j/k previous/next post (mentions then suggestions, hidden skipped; header shows n/total), g draft reply (editor: Ctrl+S send, Ctrl+E queue, Ctrl+B post in browser: saves the reply as sent and opens the next post, Ctrl+G regenerate, Esc cancel), Esc close, o open in browser, r reply, t pick this post's tags to hide (same exclusion as /topics)."),
         ("share", "", "Open X compose in your browser with a post sharing xbot (you review and post it)", "/share", "Nothing is posted through the API."),
         ("open", "<n>", "Open found post #n in your browser", "/open 3", "WSL: wslview, then powershell.exe Start-Process, then cmd.exe start (never explorer.exe, which opens Documents for URLs with &); Linux: xdg-open; then Python webbrowser; prints the URL if none works."),
         ("topics", "", "Pick content tags to hide (checkbox picker)", "/topics", "TUI modal listing every tag with counts of found posts. Space toggles, Enter saves, Esc cancels. Checked = hidden."),
@@ -37,6 +37,7 @@ SECTIONS = {
         ("muted", "", "List mute (real) authors", "/muted", "(dry) marks mutes that only happened locally."),
         ("blocked", "", "List block (local) authors", "/blocked", "Also shown (uncheck to unblock) in the /topics picker."),
         ("excluded", "", "List tags, counts, which are excluded, and the effective query", "/excluded", ""),
+        ("feed", "[reset]", "Saved posts left for F5; reset restarts the FIFO from the oldest", "/feed reset", "F5 shows the next 100 saved posts (oldest first, first in first out); once all were shown, F5 searches X for new posts, which join the end of the queue."),
         ("export", "", "Force-write found.json", "/export", "~/.local/state/xbot/found.json; written automatically on every change."),
     ],
     "Drafts & approval": [
@@ -61,12 +62,12 @@ SECTIONS = {
         ("help", "[command]", "This help, or details for one command", "/help reply", ""),
     ],
 }
-KEYS = [("a", "approve selected draft (mention replies send via API; other replies open X in your browser prefilled, you add your flavor and press Post)"), ("r", "reject selected draft (instant) and hide its post (in /hidden; mentions: that post only)"), ("e", "edit selected draft"),
+KEYS = [("a", "approve selected draft (mention replies send via API; other replies open X in your browser prefilled, you add your flavor and press Post)"), ("r", "reject selected draft (instant) and hide its post (in /hidden; mentions: that post only)"), ("e", "edit the selected draft in place: the highlighted queue card expands to the full post + full reply; e turns the reply into a wrapped editor in that card (Enter or Ctrl+S save, Esc cancel)"),
         ("F5", "refresh feed + catalog (= /tick): fetch new mentions and up to 10 search posts into the feed/catalog; with Grok on, free queue slots (10 mention + 10 suggested) are drafted from the catalog; works even while typing"),
         ("x / X (queue)", "clear all pending suggested / mention drafts (asks y/n; posts stay in the feed)"),
         ("F2", "open the /filter view (what is hidden and how to change it); works even while typing"),
         ("m", "mentioners list: pop-up to see/edit filtered mentioners (same as /mentioners)"),
-        ("p", "pause/resume"), ("f", "browse found posts (arrows + Enter = card)"),
+        ("h", "search history: past /search queries (newest first, saved to search_history.json); Enter or click fills the input with /search <query>, Esc closes"), ("p", "pause/resume"), ("f", "browse found posts (arrows + Enter = card)"),
         ("click #n", "click a found post number in the feed to open its card"),
         ("q (in mention card)", "filter this mentioner: hide their future mentions, drop their pending drafts (edit the list with m or /mentioners)"),
         ("v (in card)", "view all of the post's media (photos, videos, GIFs) in the terminal with mpv; ←/→ previous/next item (always shown; continues into the next/previous post with media), z large photo (toggle normal fit / largest fit, never cropped), l like the post on screen, r remove (mute the author on X + hide the post, then the next post), t tags (opens the card's filter popup; Enter applies + hides the post and resumes at the next post, Esc resumes at the same item), q/Esc back; on videos also a/d seek 5s, ↑/↓ volume, space pause, m mute"),
@@ -102,10 +103,23 @@ def render_help():
     return "\n".join(out)
 
 
+SEARCH_TIPS = """## Search operator tips (X API v2 recent search)
+  space = AND · OR + parentheses: (rust OR golang OR "zig lang") · "quotes" = exact phrase
+  exclude with minus: -is:retweet -is:reply -is:quote · -giveaway -airdrop -crypto
+  type: has:media has:images has:video_link has:links (is:/has:/lang: need another term in the query)
+  language: lang:en (exclude: -lang:ja)
+  people: from:user  -from:user  is:verified
+  hashtag / mention: #rustlang  @rustlang
+  engagement: min_likes:20 min_reposts:5 min_replies:3 (min_faves/min_retweets are web-only, rejected by the API)
+  example: (rust OR "rust lang" OR #rustlang) has:media lang:en -is:retweet -is:reply -giveaway -crypto
+  narrower queries cost less: each returned post is billed ($0.005 when reads are live)"""
+
+
 def render_cmd(name):
     name = name.lstrip("/").lower()
     if name not in INDEX:
         s = suggest(name)
         return f"unknown command /{name}" + (f" -- did you mean /{s}?" if s else "")
     n, a, d, ex, detail = INDEX[name]
-    return "\n".join(x for x in [f"## /{n} {a}".rstrip(), f"  {d}", f"  {detail}" if detail else "", f"  example: {ex}"] if x)
+    out = "\n".join(x for x in [f"## /{n} {a}".rstrip(), f"  {d}", f"  {detail}" if detail else "", f"  example: {ex}"] if x)
+    return out + ("\n" + SEARCH_TIPS if n == "search" else "")

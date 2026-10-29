@@ -1,5 +1,3 @@
-import pytest
-from PIL import Image as PILImage
 from xbot.app import XBotApp
 from tests.test_search import S
 

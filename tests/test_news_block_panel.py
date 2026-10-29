@@ -2,7 +2,7 @@ import json
 from textual.widgets import Static, SelectionList
 from xbot.commands import parse, CommandError
 from xbot.tags import tag_text, tag_post, build_query, label_ids
-from xbot.app import XBotApp, PostCard, Confirm, TagPicker
+from xbot.app import XBotApp, PostCard, Confirm
 from xbot.render import drafts_title, drafts_placeholder
 from xbot.llm import FakeLLM
 from tests.test_search import P, S

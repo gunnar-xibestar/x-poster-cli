@@ -7,7 +7,7 @@ README screenshot generator (shots_cli) is a separate dev tool: scripts/screensh
 import asyncio, os, tempfile
 from pathlib import Path
 
-from .app import XBotApp, ReplyEditor
+from .app import XBotApp
 from .bot import Bot
 from .config import Config
 from .llm import FakeLLM
@@ -276,7 +276,8 @@ def demo_app(tmp):
     """XBotApp over fake data in `tmp`: DryRunX, fake Grok, no keys, no browser, real config/state untouched.
     Every write path (config saves are no-ops; state, logs, crash.log, tokens, secrets paths) goes to `tmp`."""
     restore = sandbox(tmp)
-    for k in ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET", "XAI_API_KEY", "X_BEARER_TOKEN"):
+    for k in ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET", "XAI_API_KEY", "X_BEARER_TOKEN",
+              "XAI_MANAGEMENT_KEY", "XAI_TEAM_ID", "X_CLIENT_ID", "X_CLIENT_SECRET", "X_REFRESH_TOKEN", "XBOT_SECRET_CMD"):
         os.environ.pop(k, None)
     cfg = Config(post_every_n_ticks=0, search_every_n_ticks=1, dry_run=True, reads_live=False, oembed_prefetch=False)
     log = ActionLog(Path(tmp))

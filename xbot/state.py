@@ -27,6 +27,7 @@ class BotState:
         self.x_run_spend = 0.0  # X API usd this session (same rules)
         self.me_id = None  # cached own X user id
         self.spend_log: list = []  # [[unix ts, usd], ...] every live X + Grok charge, last 5 days (never reset on exit)
+        self.feed_shown: list = []  # found-post ids already served to the feed (FIFO cursor for F5)
         self.liked: list = []  # post ids liked via the browser like intent (l): never opened twice
         if self.path and self.path.exists():
             data = None
@@ -37,7 +38,7 @@ class BotState:
                     time.sleep(0.05)
             if isinstance(data, dict):
                 self.__dict__.update({k: v for k, v in data.items()
-                                      if k in ("seen", "replied_threads", "spend", "reply_send_times", "prefill", "me_id", "liked", "grok_spend", "grok_run_spend", "x_run_spend", "spend_log")})
+                                      if k in ("seen", "replied_threads", "spend", "reply_send_times", "prefill", "me_id", "liked", "grok_spend", "grok_run_spend", "x_run_spend", "spend_log", "feed_shown")})
 
     def save(self):
         if not self.path:
@@ -48,7 +49,7 @@ class BotState:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         from .secure import write_private  # atomic 0600: readers never see a half-written file
         write_private(self.path, json.dumps({k: getattr(self, k) for k in
-                                             ("seen", "replied_threads", "spend", "reply_send_times", "prefill", "me_id", "liked", "grok_spend", "grok_run_spend", "x_run_spend", "spend_log")}))
+                                             ("seen", "replied_threads", "spend", "reply_send_times", "prefill", "me_id", "liked", "grok_spend", "grok_run_spend", "x_run_spend", "spend_log", "feed_shown")}))
 
     def today(self):
         return time.strftime("%Y-%m-%d", time.gmtime(self.clock()))  # X bills per UTC day

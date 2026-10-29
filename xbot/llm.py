@@ -10,6 +10,16 @@ class LLMError(RuntimeError):
     pass
 
 
+class LLMTimeout(LLMError):
+    """Grok did not answer within GROK_TIMEOUT_S (big batch on a slow model). Retried on the next refresh."""
+    def __init__(self, msg, seconds):
+        super().__init__(msg)
+        self.seconds = seconds
+
+
+GROK_TIMEOUT_S = 180  # per Grok request; batches of several posts on grok-4.x can take over a minute
+
+
 class LLMRateLimited(LLMError):
     """xAI 429 'Too many requests' (e.g. a key limited to 1 request/minute). Back off, retry later."""
     def __init__(self, msg, retry_after=60):
@@ -29,7 +39,7 @@ class GrokLLM:
         if not key:
             raise LLMFatal("XAI_API_KEY not set (env or ~/.config/xbot/env)")
         self.model = model
-        self.client = OpenAI(api_key=key, base_url=base_url, max_retries=0, timeout=60)
+        self.client = OpenAI(api_key=key, base_url=base_url, max_retries=0, timeout=GROK_TIMEOUT_S)
 
     def complete(self, system, user):
         import openai
@@ -48,8 +58,24 @@ class GrokLLM:
                 raise LLMRateLimited("xAI 429: too many requests for this API key (its requests-per-minute limit)",
                                      _retry_after(e)) from None
             raise LLMError(f"xAI {e.status_code}: {_msg(e)}") from None
+        except openai.APITimeoutError:  # subclass of APIConnectionError: must come first
+            raise LLMTimeout(f"Grok timed out after {GROK_TIMEOUT_S}s", GROK_TIMEOUT_S) from None
         except openai.APIConnectionError as e:
-            raise LLMError(f"cannot reach {self.client.base_url} (proxy down?)") from None
+            if _is_timeout(e):
+                raise LLMTimeout(f"Grok timed out after {GROK_TIMEOUT_S}s", GROK_TIMEOUT_S) from None
+            url = str(self.client.base_url)
+            local = any(h in url for h in ("127.0.0.1", "localhost", "[::1]"))
+            raise LLMError(f"cannot reach {url}" + (" (local proxy down?)" if local else " (network error)")) from None
+
+
+def _is_timeout(e):
+    """A connection error caused by a read/connect timeout (httpx/httpx2 *Timeout*, socket TimeoutError)."""
+    c, seen = e, 0
+    while c is not None and seen < 10:
+        if isinstance(c, TimeoutError) or "Timeout" in type(c).__name__:
+            return True
+        c, seen = c.__cause__ or c.__context__, seen + 1
+    return False
 
 
 def _retry_after(e, default=60):

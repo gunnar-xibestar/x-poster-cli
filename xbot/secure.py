@@ -112,14 +112,23 @@ def write_private(path, data, mode=0o600):
     """Atomic write: os.open(tmp, 0600) + fsync + os.replace."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    tmp = path.with_name(path.name + ".tmp")
+    # unique temp name per writer: a shared "x.tmp" let two threads (e.g. a worker + tick
+    # both exporting found.json) race, and the loser's os.replace raised FileNotFoundError
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     try:
-        os.write(fd, data.encode() if isinstance(data, str) else data); os.fsync(fd)
-    finally:
-        os.close(fd)
-    os.chmod(tmp, mode)
-    os.replace(tmp, path)
+        try:
+            os.write(fd, data.encode() if isinstance(data, str) else data); os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)  # never leave a stray .tmp behind (disk full, encode error, ...)
+        except OSError:
+            pass
+        raise
 
 
 def append_private(path, line):

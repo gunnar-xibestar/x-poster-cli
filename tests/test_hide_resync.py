@@ -1,4 +1,3 @@
-import asyncio
 from xbot.app import pick_after_hide
 
 
@@ -19,7 +18,6 @@ from tests.test_search import P, S
 
 def _viewer_hides(app, hide):
     """Fake media viewer: hides posts `hide` (like r / t) and reports the last item shown."""
-    from xbot import video
     def fake(*a, **k):
         for n in hide:
             app.bot.hide_post(n, forever=True)

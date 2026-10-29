@@ -10,7 +10,7 @@ DRAFT_REF = re.compile(r"^(?:[mM]?\d+|@\d+)$")
 
 COMMANDS = {"pause", "resume", "stop", "align", "post", "reply", "status", "dryrun",
             "approve", "reject", "edit", "topics", "posttopics", "exclude", "include", "excluded", "model", "tick", "help",
-            "search", "searchon", "searchoff", "maxresults", "cap", "maxpending", "maxmentions", "clear", "found", "grok", "reads", "send", "export", "show", "open", "block", "unblock", "blocked", "mute", "unmute", "muted", "filter", "hidden", "backfill", "mentioners", "share", "style", "limit"}
+            "search", "searchon", "searchoff", "maxresults", "cap", "maxpending", "maxmentions", "clear", "found", "grok", "reads", "send", "export", "show", "open", "block", "unblock", "blocked", "mute", "unmute", "muted", "filter", "hidden", "backfill", "mentioners", "share", "style", "limit", "feed"}
 
 
 @dataclass
@@ -36,6 +36,8 @@ def parse(line: str) -> Command:
         raise CommandError(f"unknown command /{name}" + (f" -- did you mean /{sg}?" if sg else " (try /help)"))
     if name in ("help", "filter", "hidden"):
         return Command(name, text=rest)
+    if name == "search" and rest.strip().lower() in ("", "help", "?", "tips"):
+        return Command(name, text="help")
     if name in ("align", "post", "posttopics", "model", "search", "exclude", "include"):
         if not rest:
             raise CommandError(f"/{name} needs text")
@@ -54,6 +56,10 @@ def parse(line: str) -> Command:
         if not DRAFT_REF.match(rest):
             raise CommandError(f"usage: /{name} <n|m<n>>  (n = position in Suggested replies, m<n> in Mentions)")
         return Command(name, [rest.lower()])
+    if name == "feed":
+        if rest.lower() not in ("", "reset"):
+            raise CommandError("usage: /feed  (saved posts left)  ·  /feed reset  (next F5 starts again from the oldest)")
+        return Command(name, [rest.lower()] if rest else [])
     if name == "limit":
         if not rest:
             return Command(name, [])

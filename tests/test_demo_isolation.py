@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 import xbot.sample as S
 from xbot import config as C, log as L
 

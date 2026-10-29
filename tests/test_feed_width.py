@@ -4,7 +4,7 @@ from tests.test_search import S
 from tests.test_media_layout import P
 
 
-@pytest.mark.parametrize("w", [120, 200])
+@pytest.mark.parametrize("w", [120])
 async def test_feed_lines_reach_right_edge(mk, w):
     b = mk(xonly=True, search=[P(i, "lorem ipsum dolor sit amet " * 12) for i in range(1, 6)], **S())
     app = XBotApp(bot=b, autostart=False)

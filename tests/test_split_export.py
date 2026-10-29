@@ -22,7 +22,8 @@ def test_reads_auto_live_with_keys_sends_stay_dry(mk, monkeypatch):
     b.handle(parse("/reply #1 nice")); b.handle(parse(f"/approve @{b.queue.pending()[0].id}"))
     # non-mention reply: opens X's prefilled reply page, nothing sent through the API, no spend
     assert real.sent == [] and b.dry_x.sent == [] and b.state.spent_today() == 0.005
-    assert opened == ["https://x.com/intent/post?in_reply_to=1&text=nice"] and b.found[0]["replied"]
+    assert opened == ["https://x.com/intent/post?in_reply_to=1&text=nice"] and b.found == []
+    assert any(d.status == "sent" for d in b.queue.items)
     st = b.status(); assert "reads=live" in st and "send=dry" in st
 
 
@@ -47,9 +48,25 @@ def test_found_export(mk, monkeypatch):
     assert set(p) == {"n", "id", "author", "text", "created_at", "url", "source", "replied", "name", "public_metrics", "tags", "xlabels", "username", "author_id", "author_lookup"}
     assert p["url"] == "https://x.com/i/status/7" and p["author"] == "ua1" and p["replied"] is False
     b.handle(parse("/reply #1 cool")); b.handle(parse(f"/approve @{b.queue.pending()[0].id}"))
-    assert json.loads(b.found_path.read_text())["posts"][0]["replied"] is True
+    data = json.loads(b.found_path.read_text())["posts"]  # replied post removed, rest renumbered
+    assert [(p["n"], p["id"]) for p in data] == [(1, "8")]
     raw = b.found_path.read_text()
     assert not any(v in raw for v in list(KEYS.values()) + ["xai-secret-zzz"])
     assert not b.found_path.with_suffix(".tmp").exists()
     b.found_path.unlink(); b.handle(parse("/export")); assert b.found_path.exists()
-    b2 = mk(xonly=True); assert len(b2.found) == 2 and b2.found[0]["replied"]
+    b2 = mk(xonly=True); assert [p["id"] for p in b2.found] == ["8"]
+
+
+def test_old_found_json_with_media_checked_key_loads(tmp_path):
+    import json
+    from xbot.bot import Bot
+    from xbot.config import Config
+    from xbot.log import ActionLog
+    from xbot.xapi import DryRunX
+    (tmp_path / "found.json").write_text(json.dumps({"posts": [
+        {"id": "1", "text": "a", "source": "search", "media_checked": True},
+        {"id": "2", "text": "b", "source": "search", "media_checked": True, "media": [{"type": "photo", "url": "u"}]}]}))
+    b = Bot(Config(), None, DryRunX(), ActionLog(tmp_path, sink=lambda *a: None), state_dir=tmp_path, save_config=lambda: None)
+    assert [p["id"] for p in b.found] == ["1", "2"] and b.found[1]["media"] and "media_checked" not in b.found[0]
+    b.export()
+    assert "media_checked" not in (tmp_path / "found.json").read_text()

@@ -1171,7 +1171,6 @@ def run_mpv(url, cfg, run=subprocess.run, which=shutil.which, size=None, env=Non
                               daemon=True); th.start()
         argv = mpv_argv(items, vo, getattr(cfg, "video_audio", "off"), cols, rows, input_fd=r, xpx=xp, ypx=yp,
                         ipc_fd=theirs.fileno(), start=start, scale=getattr(cfg, "video_scale", VIDEO_SCALE))
-        from .secure import safe_env
         import json as _json
         def ipc_send(cmd):
             try:
@@ -1191,7 +1190,7 @@ def run_mpv(url, cfg, run=subprocess.run, which=shutil.which, size=None, env=Non
         saved = None
         if tin:
             try:
-                import termios, tty as _tty
+                import termios
                 saved = termios.tcgetattr(tin.fileno()); input_raw(tin.fileno())  # keys raw, output untouched
             except Exception:
                 saved = None

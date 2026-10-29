@@ -30,7 +30,7 @@ use `https://api.x.ai/v1` to go direct), `XBOT_MODEL` (default `grok-4.7`).
 ```
 Panes: action feed (left), pending drafts (right), status line, command input.
 Keys (when the draft list is focused; F6 to switch focus; in the input, Tab completes commands / `/filter` subcommands / topic names and Up/Down browse command history persisted to `$XBOT_STATE_DIR/history.txt`, max 500 lines, secret-looking lines skipped): `a` approve+send, `r` reject,
-`e` edit (loads text into input, Enter saves), `p` pause/resume, `f` found-post browser, `Ctrl+C` or `Ctrl+Q` quit (also SIGINT/SIGTERM): stops auto-search, saves queue/state, logs "stopped". Search runs automatically only while the app is open.
+`e` edit (loads text into input, Enter saves), `p` pause/resume, `f` found-post browser, `h` search history (past `/search` / `xbot search` queries, newest first, deduped, last 100, stored 0600 in `~/.local/state/xbot/search_history.json`; Enter or click fills the input with `/search <query>`, Esc closes; in a post card `h` still hides), `Ctrl+C` or `Ctrl+Q` quit (also SIGINT/SIGTERM): stops auto-search, saves queue/state, logs "stopped". Search runs automatically only while the app is open.
 
 ## Demo mode
 ```bash
@@ -101,7 +101,7 @@ With `send=dry` it only logs `[DRY-MUTE]` and blocks locally. 403/402/401 errors
 stays blocked locally. Your own user id is cached in state.json (`me_id`).
 
 ## Drafts panel
-The right panel is titled **Auto replies (Grok drafts) n/10**; its footer shows `o open · a approve · e edit · r reject …`. Clicking a draft only highlights it; `o` (or Enter) opens its post.
+The right panel is titled **Auto replies (Grok drafts) n/10**; its footer shows `o open · a approve · e edit · r reject …`. Clicking a draft only highlights it; `o` (or Enter) opens its post. The highlighted card expands just enough to show the full original post and the full drafted reply (other cards stay compact, reply clipped). `e` on it swaps the reply for a wrapped editor in the same spot, prefilled; Enter or Ctrl+S saves (same `/edit` path, so style learning still applies), Esc cancels; the card then shows the expanded text again.
 When empty it explains why (Grok off → add XAI_API_KEY and `/grok on`; Grok on → `/tick` or `g` on a post).
 
 ## X labels
@@ -143,8 +143,20 @@ Every `search_every_n_ticks` polls (default 5, i.e. ~10 min at 120 s) the bot ca
 `GET /2/tweets/search/recent` with `search_query` (default: AI/LLM/programming/Linux/open source/devops/rust/python,
 `-is:retweet -is:reply -is:quote lang:en min_likes:20`) and `max_results` 10. Seen post ids and replied
 threads are persisted (`state.json`); own posts are skipped. Grok gets the text + @author and may answer `SKIP`.
-At most `max_replies_per_hour` (6) live replies are SENT per hour (drafts are not counted). A background worker keeps drafting (no F5 needed; the queue title shows `drafting… next in Ns`), up to `draft_batch` (8) posts per Grok request as JSON, each request going to the emptier of the mention / suggested queues (ties alternate; mentions are prefilled too, sharing the pool) (fills free slots, the rest go to a stored prefill pool up to `prefill_max`, 20; freed slots promote from the pool with no API call; title shows `prefilled N` and `drafts full` when nothing needs Grok), and drafting stops when
+At most `max_replies_per_hour` (6) live replies are SENT per hour (drafts are not counted). A background worker keeps drafting (no F5 needed; the queue title shows `drafting… next in Ns`), up to `draft_batch` (4) posts per Grok request as JSON, each request going to the emptier of the mention / suggested queues (ties alternate; mentions are prefilled too, sharing the pool) (fills free slots, the rest go to a stored prefill pool up to `prefill_max`, 20; freed slots promote from the pool with no API call; title shows `prefilled N` and `drafts full` when nothing needs Grok), and drafting stops when
 `max_pending` (4) suggested drafts are waiting. Mention replies have their own cap, `max_mention_drafts` (4, `/maxmentions n`, 0 = unlimited): extra mentions stay in the feed undrafted (status `+N waiting`) and the oldest waiting one is drafted on the next check after you approve/reject/filter one. `F5` (anywhere, even while typing) = `/tick` ("Refresh feed + catalog"): fetches into the feed. The **catalog** (waiting pool) is every feed post/mention without a draft that is not replied, rejected, SKIPped or hidden; status shows `waiting=N`, panel section headers `N shown · M waiting`. Approve/reject/`/clear` and `/grok on` draw from the catalog immediately (no network) up to `max_mention_drafts` + `max_pending`. X-only mode only fills the catalog. `/clear mentions|suggested` (queue keys `X` / `x`, y/n confirm) rejects all pending drafts of that kind.
+
+### Search operator tips
+`/search help` (or bare `/search`, or `/help search`) prints these without changing the query or calling X.
+Verified against [X API search operators](https://docs.x.com/x-api/posts/search/integrate/operators):
+- space = AND; `OR` + parentheses: `(rust OR golang OR "zig lang")`; `"quotes"` = exact phrase
+- exclude with `-`: `-is:retweet -is:reply -is:quote`, `-giveaway -airdrop -crypto`
+- type: `has:media has:images has:video_link has:links` (`has:videos` is not an API operator); `is:`/`has:`/`lang:` need another term in the query
+- language: `lang:en` (exclude: `-lang:ja`)
+- people: `from:user`, `-from:user`, `is:verified`; hashtag/mention: `#rustlang`, `@rustlang`
+- engagement: `min_likes:`, `min_reposts:`, `min_replies:` (web-only `min_faves:`/`min_retweets:` are rejected with 400)
+- example: `(rust OR "rust lang" OR #rustlang) has:media lang:en -is:retweet -is:reply -giveaway -crypto`
+- narrower queries cost less: each returned post is billed
 
 **Important:** since Feb 23 2026 X only allows API replies on self-serve tiers when the author *summoned*
 you (mention/quote). Search-sourced replies will likely be rejected (403) when live; treat them as suggestions to

@@ -201,7 +201,6 @@ def test_search_cli_play_all_media(monkeypatch):
 
 def test_help_and_card_hints():
     from xbot import help as H
-    from xbot.render import card_renderable
     txt = H.render_help()
     assert "←/→ previous/next item" in txt and "browser" not in [d for k, d in H.KEYS if k == "v (in card)"][0]
     assert not any(k.startswith(("i (in card)", "V (in card)")) for k, _ in H.KEYS)

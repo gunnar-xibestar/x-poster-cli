@@ -8,7 +8,7 @@ import random, re
 from .textutil import clip
 from pathlib import Path
 from .commands import Command
-from .llm import LLMFatal, LLMError, LLMRateLimited, SUPPORTED_MODELS
+from .llm import LLMFatal, LLMError, LLMRateLimited, LLMTimeout, SUPPORTED_MODELS
 from .queue import DraftQueue
 from .xapi import media_url
 
@@ -21,7 +21,7 @@ def share_url(text=SHARE_TEXT):
     from urllib.parse import quote
     return "https://x.com/intent/post?text=" + quote(text, safe="")
 from .state import BotState, COST_POST, COST_POST_URL, COST_SUMMONED_REPLY, COST_READ, COST_OWNED_READ, COST_MUTE, COST_UNMUTE, COST_USER_LOOKUP
-import json, os
+import json
 from collections import Counter
 from .safety import detail as filter_detail, QUERY_EXCLUDES, reasons as filter_reasons, ALL_TOPICS, TOPICS as FILTER_TOPICS
 from .tags import DEFAULT_TAXONOMY, UNTAGGED, tag_post, build_query, x_labels, label_ids, retag
@@ -43,6 +43,7 @@ class Bot:
         self.real_x_factory = real_x_factory
         self.save_config = save_config or (lambda: None)
         sd = Path(state_dir) if state_dir else log.dir
+        self.state_dir = Path(sd)
         from .style import StyleStore
         self.style = StyleStore(Path(sd) / "style_examples.jsonl")
         self.queue = DraftQueue(sd / "queue.json")
@@ -87,6 +88,14 @@ class Bot:
                 self.found = []
         from .safety import set_topic_edits
         set_topic_edits(self.cfg.topic_edits)
+        if not self.cfg.draft_batch_migrated:  # old default 8 timed out on grok-4.x; a value you set stays
+            if self.cfg.draft_batch == 8:
+                self.cfg.draft_batch = 4
+            self.cfg.draft_batch_migrated = True
+            try:
+                self.save_config()
+            except Exception:
+                pass
         if not self.cfg.x_flags_migrated:  # X's flags used to be part of "adult"; keep them on for old configs
             if "adult" in self.cfg.filter_topics and "x-flags" not in self.cfg.filter_topics:
                 self.cfg.filter_topics.append("x-flags")
@@ -235,6 +244,7 @@ class Bot:
         p = dict(p, source=source)
         p["tags"] = tag_post(p, self.taxonomy)
         p["xlabels"] = x_labels(p)
+        self.state.feed_shown.append(str(p["id"]))  # shown now: at the end of the FIFO, never served again
         p.pop("context_annotations", None); p.pop("entities", None)
         self.found.append(p)
         self.found = self.found[-1000:]
@@ -257,11 +267,16 @@ class Bot:
                            **({"media_url": media_url(p)} if p.get("media") else {}), **extra)
 
     def replay_found(self):
-        """Show ALL found posts in the feed (mentions first, then suggestions); not re-logged to JSONL."""
-        items = self.visible_found()
+        """Startup: redraw the current FIFO page (the last FEED_MAX served posts; the first page of saved posts
+        when none were served yet). Mentions first, then suggestions; not re-logged to JSONL."""
+        if not self.feed_found():
+            return self.serve_saved()
+        items = self.feed_found()
+        allv = len(self.visible_found())
         if items:
             self.log.feed_only("info", f"replaying {len(items)} found posts"
-                               + (f" ({len(self.found) - len(items)} hidden by tag)" if len(items) < len(self.found) else ""))
+                               + (f" (newest {len(items)} of {allv})" if allv > len(items) else "")
+                               + (f" ({len(self.found) - allv} hidden by tag)" if allv < len(self.found) else ""))
         for src, title in (("mention", "Mentions"), ("search", "Suggested replies")):
             grp = [(n, p) for n, p in items if p.get("source") == src]
             if grp:
@@ -317,6 +332,48 @@ class Bot:
 
     def visible_found(self):
         return [(n, p) for n, p in enumerate(self.found, 1) if not self.hidden(p)]
+
+    # ---- FIFO feed: saved posts are served oldest first, FEED_MAX per F5 ----------------------------
+    def _shown(self):
+        return set(map(str, self.state.feed_shown))
+
+    def mark_shown(self, ids):
+        s = self._shown()
+        new = [str(i) for i in ids if str(i) not in s]
+        if new:
+            keep = {str(p["id"]) for p in self.found}
+            self.state.feed_shown = [i for i in self.state.feed_shown if str(i) in keep] + new
+            try:
+                self.state.save()
+            except Exception:
+                pass
+
+    def feed_found(self):
+        """The visible found posts loaded into the feed: the last FEED_MAX already served (found order)."""
+        from .config import FEED_MAX
+        s = self._shown()
+        vis = [(n, p) for n, p in self.visible_found() if str(p["id"]) in s]
+        return vis[-FEED_MAX:] if FEED_MAX > 0 else vis
+
+    def saved_left(self):
+        """Visible saved posts not served to the feed yet, oldest first."""
+        s = self._shown()
+        return [(n, p) for n, p in self.visible_found() if str(p["id"]) not in s]
+
+    def serve_saved(self):
+        """F5: show the next FEED_MAX not-yet-shown saved posts (oldest first). No X search, no Grok drafting.
+        Returns how many were shown."""
+        from .config import FEED_MAX
+        left = self.saved_left()
+        page = left[:FEED_MAX] if FEED_MAX > 0 else left
+        if not page:
+            return 0
+        self.mark_shown([p["id"] for _, p in page])
+        rest = len(left) - len(page)
+        self.log.feed_only("section", f"Saved posts ({len(page)}) · oldest first · {rest} saved left")
+        for n, p in page:
+            self._found_line(n, p, replay=True)
+        return len(page)
 
     def _fetch_author(self, tid):
         from .oembed import fetch_author
@@ -449,7 +506,7 @@ class Bot:
 
     def nav_order(self):
         """Found-post numbers in list order: mentions first, then suggestions; hidden excluded."""
-        vis = self.visible_found()
+        vis = self.feed_found()
         return [n for n, p in vis if p.get("source") == "mention"] + [n for n, p in vis if p.get("source") != "mention"]
 
     def tag_counts(self):
@@ -882,6 +939,25 @@ class Bot:
         return self._enqueue("reply", text, in_reply_to=p["id"], source="manual",
                              conversation_id=p.get("conversation_id") or p["id"])
 
+    def browser_reply_to_found(self, n, text, grok_text=None):
+        """Ctrl+B in the reply editor: the reply was opened in the browser (X web intent). Record it like an
+        approved browser reply: a queue.json draft with status "sent", the post marked replied, its thread in
+        state.replied_threads (so it isn't drafted again)."""
+        p = self.found_post(n)
+        self.learn_style(p["id"], p.get("text", ""), grok_text, text)
+        self.drop_prefill(p["id"])
+        conv = p.get("conversation_id") or p["id"]
+        d = self._enqueue("reply", text, in_reply_to=p["id"], source="manual", conversation_id=conv)
+        self.queue.set_status(d.id, "sent")
+        p["replied"] = True
+        if conv not in self.state.replied_threads:
+            self.state.replied_threads.append(conv)
+        self.remove_found(p["id"])  # replied posts leave found.json for good (queue + replied_threads remember)
+        self.state.save()
+        self.export()
+        self.log.event("sent", f"#{d.id} reply to #{n} posted via browser (saved as sent, post removed)")
+        return d
+
     def send_reply_to_found(self, n, text, grok_text=None):
         """Send now via the normal path (dry/live, cap). Marks replied on success."""
         p = self.found_post(n)
@@ -889,12 +965,31 @@ class Bot:
         tid = self.send("reply", text, in_reply_to=p["id"], summoned=p.get("source") == "mention")
         if tid:
             p["replied"] = True
-            self.state.replied_threads.append(p.get("conversation_id") or p["id"]); self.state.save()
+            self.state.replied_threads.append(p.get("conversation_id") or p["id"])
+            self.remove_found(p["id"]); self.state.save()
             self.export()
         elif p.get("source") != "mention" and not self.cfg.dry_run:
             self.log.event("warn", "note: X self-serve API only allows replies to posts that summoned you "
                            f"(mention/quote); use /open {n} to reply by hand")
         return tid
+
+    def remove_found(self, pid):
+        """Drop a post from the found list (renumbers the rest), its other pending drafts and its F5 cursor entry."""
+        pid = str(pid)
+        self.found = [p for p in self.found if str(p["id"]) != pid]
+        for d in self.queue.pending():
+            if d.in_reply_to and str(d.in_reply_to) == pid:
+                self.queue.set_status(d.id, "rejected")
+        self.state.feed_shown = [i for i in self.state.feed_shown if str(i) != pid]
+
+    def purge_replied(self):
+        """One-time cleanup: remove every found post already marked replied (like remove_found). Returns count."""
+        ids = [str(p["id"]) for p in self.found if p.get("replied")]
+        for pid in ids:
+            self.remove_found(pid)
+        if ids:
+            self.state.save(); self.export()
+        return len(ids)
 
     def found_post(self, n):
         if not 1 <= n <= len(self.found):
@@ -956,6 +1051,11 @@ class Bot:
             self.last_draft_error = f"xAI rate limit: retrying in {int(e.retry_after)}s"
             self.log.event("warn", f"xAI 429: key limit is lower than llm_rpm={self._rpm()} (auto {self.auto_limit()}/min); "
                                    f"raise it at console.x.ai or run xbot config llm_rpm N. Retrying in {int(e.retry_after)}s")
+        except LLMTimeout as e:
+            n = getattr(self, "_draft_n", 1) or 1
+            msg = f"Grok timed out after {int(e.seconds)}s drafting {n} post{'s' if n != 1 else ''}; will retry next refresh"
+            self.last_draft_error = msg
+            self.log.event("warn", msg)
         except LLMError as e:
             self.last_draft_error = clip(str(e), 120)
             self.log.event("warn", str(e))
@@ -1130,7 +1230,6 @@ class Bot:
             me = self.rx.me(); self._cache_me(self.rx)
         except XError:
             pass
-        made = 0
         posts = sorted(posts, key=lambda p: int(p["id"]))
         if posts:
             self.search_since_id = posts[-1]["id"]
@@ -1296,7 +1395,10 @@ class Bot:
         return n / cap if cap > 0 else 0.0
 
     def _batch_n(self):
-        return max(1, int(self.cfg.draft_batch or 1))
+        try:
+            return max(1, int(self.cfg.draft_batch or 1))
+        except (TypeError, ValueError):  # hand-edited non-number: one post per request
+            return 1
 
     def _pool_count(self, kind):
         ids = {str(p["id"]) for p in self._cands(kind)}
@@ -1391,7 +1493,11 @@ class Bot:
             single = self._batch_n() == 1
             prompt = (self._mention_prompt(chunk) if kind == "mention"
                       else self._single_prompt(chunk[0]) if single else self._batch_prompt(chunk))
-            raw = self._draft(prompt, raw=True)
+            self._draft_n = len(chunk)
+            try:
+                raw = self._draft(prompt, raw=True)
+            finally:
+                self._draft_n = 1
             if self.paused or (raw is None and self.rate_limited()):
                 break
             if raw is None:
@@ -1615,21 +1721,17 @@ class Bot:
                                else f"#{did}: no browser opener worked; open manually: {url}")
             (self.opener or open_url_async)(url, done)
             self.queue.set_status(did, "sent")
-            for p in self.found:
-                if p["id"] == str(d.in_reply_to):
-                    p["replied"] = True
-            self.export()
             if d.conversation_id:
-                self.state.replied_threads.append(d.conversation_id); self.state.save()
+                self.state.replied_threads.append(d.conversation_id)
+            self.remove_found(d.in_reply_to); self.state.save()
+            self.export()
             return d
         d = self.queue.approve(did)
         tid = self.send(d.kind, d.text, d.in_reply_to, summoned=d.source == "mention")
         self.queue.set_status(did, "sent" if tid else "failed")
         if tid and d.in_reply_to:
-            hit = [p for p in self.found if p["id"] == d.in_reply_to]
-            for p in hit:
-                p["replied"] = True
-            if hit:
+            if any(str(p["id"]) == str(d.in_reply_to) for p in self.found):
+                self.remove_found(d.in_reply_to); self.state.save()
                 self.export()
         if tid and d.conversation_id:
             self.state.replied_threads.append(d.conversation_id); self.state.save()
@@ -1698,7 +1800,11 @@ class Bot:
         elif n == "reply":
             self._enqueue("reply", c.text, in_reply_to=self.resolve_id(c.args[0]), source="manual")
         elif n == "search":
+            if c.text == "help":
+                from .help import SEARCH_TIPS
+                ev("help", SEARCH_TIPS + f"\n  current query: {self.cfg.search_query}"); return
             self.cfg.search_query = c.text; self.search_since_id = None; self.search_oldest_id = None; self.save_config(); ev("ctl", f"search query: {c.text}")
+            from . import search_history; search_history.add(self.state_dir, c.text)
         elif n in ("searchon", "searchoff"):
             self.cfg.search_enabled = n == "searchon"; self.save_config(); ev("ctl", f"search {'ON' if self.cfg.search_enabled else 'OFF'}")
         elif n == "maxresults":
@@ -1776,7 +1882,7 @@ class Bot:
                           if flt in (None, s_)]
                 ev("info", f"{len(self.found)} found" + (f" (showing {flt})" if flt else ""))
                 for src, title in groups:
-                    grp = [(k, p) for k, p in self.visible_found() if p.get("source") == src]
+                    grp = [(k, p) for k, p in self.feed_found() if p.get("source") == src]
                     self.log.feed_only("section", f"{title} ({len(grp)})")
                     for k, p in grp:
                         self._found_line(k, p)
@@ -1816,6 +1922,11 @@ class Bot:
         elif n == "tick":
             if getattr(self, "drafting_hold", False):
                 self.drafting_hold = False; ev("ctl", "drafting resumed (F5)")
+            k = self.serve_saved()
+            if k:
+                ev("info", f"F5: showed {k} saved posts (oldest first) · {len(self.saved_left())} saved left"
+                   + ("" if self.saved_left() else " · next F5 searches X for new posts"))
+                return
             made = self.tick(force_search=True)
             why = ""
             if not self.grok_on:
@@ -1823,6 +1934,12 @@ class Bot:
             elif self.rate_limited() and self.catalog_size():
                 why = f" ({self.catalog_size()} waiting; next auto draft in {self.rate_limited()}s)"
             ev("info", f"manual check: {made} drafts{why}")
+        elif n == "feed":
+            if c.args == ["reset"]:
+                self.state.feed_shown = []; self.state.save()
+                ev("info", "feed reset: next F5 shows saved posts again from the oldest")
+            else:
+                ev("info", f"feed: {len(self.feed_found())} loaded · {len(self.saved_left())} saved posts left for F5 (oldest first)")
         elif n == "mentioners":
             ev("align", "filtered mentioners: " + (", ".join("@" + h for h in self.cfg.filtered_mentioners) or "(none)")
                + " · edit in the TUI with /filter mentioners")

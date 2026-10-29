@@ -1,4 +1,3 @@
-import json
 from xbot.commands import parse
 from xbot.llm import FakeLLM
 from xbot.queue import DraftQueue
