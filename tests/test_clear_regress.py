@@ -1,3 +1,4 @@
+from tests.conftest import queue_predrafts
 from xbot.app import XBotApp
 from xbot.state import BotState
 from tests.test_round_drafting import JsonLLM
@@ -6,8 +7,11 @@ from tests.test_search import P, S
 
 async def test_x_clears_queue_and_its_prefill_then_refills_paced(mk):
     llm = JsonLLM()
-    b = mk(llm, search=[P(i) for i in range(1, 40)], draft_batch=8, prefill_max=20, **S(max_pending=4)); b.tick()
-    assert len(b.queue.pending()) == 4 and b.state.prefill
+    b = mk(llm, search=[P(i) for i in range(1, 40)], draft_batch=8, prefill_max=8, **S(max_pending=4)); b.tick()
+    assert not b.queue.pending() and b.state.prefill  # Grok pre-drafts only; queue is manual
+    queue_predrafts(b); assert len(b.queue.pending()) >= 4
+    for d in b.queue.pending()[4:]: b.queue.reject(d.id)
+    b.tick()
     old = {d.id for d in b.queue.pending()}
     app = XBotApp(bot=b, autostart=False)
     async with app.run_test(size=(140, 40)) as pilot:
@@ -19,8 +23,8 @@ async def test_x_clears_queue_and_its_prefill_then_refills_paced(mk):
         b.cfg.llm_rpm, b.cfg.llm_auto_rpm = 5, 4
         assert b.wants_drafting()
         b.refill_from_catalog()
-        new = b.queue.pending()
-        assert len(new) == 4 and not {d.id for d in new} & old and llm.calls == n + 1  # one paced request refills
+        assert not b.queue.pending() and b.state.prefill and llm.calls == n + 1  # one paced request re-pre-drafts
+        assert old
         b.stopped = True
 
 

@@ -4,7 +4,7 @@
 |---|---|
 | `/help [cmd]` | full grouped help, or details for one command |
 | `/tick` | fetch new mentions + one search (10 posts) |
-| `/clear` | clear the top-left feed pane and pause Grok auto-drafting + prefill until F5 (title shows `drafting paused`; manual `g` still works; queues and state unchanged) |
+| `/clear` | clear the top-left feed pane and pause Grok pre-drafting until F5 (title shows `drafting paused`; manual `g` still works; queues and state unchanged) |
 | `/clear mentions\|suggested` | reject all pending mention / suggested drafts (posts stay in the feed) |
 | `/maxmentions n` | cap on pending mention-reply drafts (default 10, 0 = unlimited); extra mentions wait undrafted |
 | `/maxpending n` | cap on pending suggested-reply drafts (default 10; mentions not counted) |
@@ -22,10 +22,11 @@
 | `/block`, `/unblock`, `/mute`, `/unmute` `@handle`; `/blocked`, `/muted` | author control |
 | `/approve n`, `/reject n`, `/edit n <text>` | manage the draft queue |
 | `/post <text>`, `/reply #n <text>` | queue an original post / reply |
-| `/grok on\|off`, `/model <name>`, `/align <persona>` | Grok drafting settings (see [Grok drafting](GROK_DRAFTING.md)) (`/grok on` reloads the env file) |
+| `/model <name>`, `/align <persona>` | Grok drafting settings (see [Grok drafting](GROK_DRAFTING.md)) |
 | `/reads live\|off\|auto`, `/cap <usd>` | cost controls |
 | `/limit [<usd>]` | per-session API spend limit (X + Grok) (always on, default $5; every start at $0): `/limit 5`, `/limit $5`; alone shows limit, spend, left and the rolling last-5-days X + Grok total (not part of the limit). At the limit xbot saves and exits; any exit resets session spend to $0 and prints a session summary |
-| `/pause`, `/resume`, `/status`, `/stop` | bot control |
+| `/pause`, `/resume` | pause/resume Grok pre-drafting (status PAUSED/ACTIVE; key `p`) |
+| `/status`, `/stop` | bot control |
 
 - `/style` shows how many style examples are stored; `/style clear` deletes them (`~/.local/state/xbot/style_examples.jsonl`). `xbot config style_examples 0` stops using them.
 

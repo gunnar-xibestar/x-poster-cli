@@ -21,7 +21,7 @@ X_ACCESS_TOKEN=
 X_ACCESS_TOKEN_SECRET=
 ```
 - **The xAI fields can stay empty.** xbot then runs X-only: search, mentions, the feed, post cards, opening posts
-  in the browser and replies you write yourself all work; you just don't get Grok drafts. Add a key later and run `/grok on`.
+  in the browser and replies you write yourself all work; you just don't get Grok drafts. Add a key later and restart xbot.
 - Real environment variables override this file. xbot warns you if the file can be read by other users.
 - `XBOT_BASE_URL`: the default in code is `http://127.0.0.1:8767/v1` (a local usage proxy). Set it to
   `https://api.x.ai/v1` to use xAI directly (the template already does this).
@@ -49,7 +49,7 @@ X_ACCESS_TOKEN_SECRET=
    post also uses a request. Lower keys work too (`xbot config llm_rpm 1`: ~1 draft per minute, `g` goes first).
    If the key is below `llm_rpm`, xbot handles the 429 by pausing for `Retry-After` and retrying automatically.
 6. Click **Create**, copy the key once and put it in `~/.config/xbot/env` as `XAI_API_KEY=...` (never in chat, git or
-   screenshots), then run `/grok on`.
+   screenshots), then restart xbot.
 
 ## `xbot config` (settings from the shell)
 

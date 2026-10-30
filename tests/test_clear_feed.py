@@ -37,13 +37,13 @@ async def test_bare_clear_pauses_drafting_until_f5_and_g_still_works(mk):
     async with app.run_test(size=(140, 40)) as pilot:
         app.notify = lambda m, **k: notes.append(m)
         b.tick(); await pilot.pause()
-        b.queue.reject(b.queue.pending()[0].id)  # a free slot
+        b.state.prefill.clear()  # room to pre-draft again
         app._run("/clear"); await pilot.pause()
-        assert "feed cleared · drafting paused until F5" in notes and "drafting paused" in drafts_title(b)
+        assert "feed cleared · drafting paused until F5" in notes and "drafting paused" in drafts_title(b) and b.status_word() == "PAUSED"
         n = llm.calls
         assert not b.wants_drafting() and b.schedule_drafts() == 0 and b.refill_from_catalog() <= 1 and llm.calls == n
         b.tick(); assert llm.calls == n  # background ticks don't draft either
         assert b._draft("manual prompt", manual=True) is not None and llm.calls == n + 1  # g still calls Grok
         await pilot.press("f5"); await pilot.pause(); await pilot.pause()
-        assert not b.drafting_hold and "drafting paused" not in drafts_title(b)
+        assert not b.drafting_hold and "drafting paused" not in drafts_title(b) and b.status_word() == "ACTIVE"
         b.stopped = True

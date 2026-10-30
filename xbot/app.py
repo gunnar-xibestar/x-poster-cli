@@ -1139,7 +1139,7 @@ class XBotApp(App):
     BINDINGS = [("a", "approve", "Approve"), ("r", "reject", "Reject"), ("e", "edit", "Edit"),
                 ("m", "mentioners", "Mentioners list"), ("o", "open_queued", "Open post"),
                 Binding("x", "clear_suggested", "Clear suggested", show=False), Binding("X", "clear_mentions", "Clear mentions", show=False),
-                ("p", "toggle_pause", "Pause/Resume"), ("f", "found", "Found posts"), ("h", "search_history", "Search history"),
+                ("p", "toggle_pause", "Pause/Resume pre-drafting"), ("f", "found", "Found posts"), ("h", "search_history", "Search history"),
                 Binding("f3", "toggle_console", "Console"),
                 Binding("slash", "slash", "Command", show=False),
                 Binding("f5", "tick", "Refresh feed + catalog"), Binding("f2", "filter_view", "Filters"), Binding("f6", "switch_focus", "Switch pane"),
@@ -1361,7 +1361,8 @@ class XBotApp(App):
             out.append(ListItem(Label(Text.from_markup(f"[bold reverse {style}] {title} ({cnt}) [/]")),
                                 classes="qhdr", disabled=True))
             for pos, d in enumerate(grp, 1):
-                n, p = by_id.get(d.in_reply_to, (None, {}))
+                n, fp = by_id.get(d.in_reply_to, (None, {}))
+                p = d.post or fp  # the queue item's own post copy; found is only used for the #n link
                 who = p.get("username") or p.get("author_id")
                 head = f"[bold]{pos}[/]  [{style}]{escape(d.source)} {escape(d.kind)}[/]"
                 if who:
@@ -1369,6 +1370,9 @@ class XBotApp(App):
                 if n:
                     head += f"  [dim]post #{n}[/]"
                 compact, full = [head], [head]
+                if not d.context and p.get("text"):
+                    compact.append(f"[dim]re:[/] [grey62]{escape(clip(p['text'], 90))}[/]")
+                    full.append(f"[dim]re:[/] [grey70]{escape(p['text'])}[/]")
                 if d.context:
                     compact.append(f"[dim]re:[/] [grey62]{escape(clip(d.context, 90))}[/]")
                     full.append(f"[dim]re:[/] [grey70]{escape(d.context)}[/]")
@@ -1443,9 +1447,21 @@ class XBotApp(App):
         """Click/Enter on a queue draft = click its post's #n in the feed (opens the post card)."""
         if ev.list_view.id != "queue" or not ev.item.name or self._editing is not None:
             return
-        n = self.post_number_for_draft(int(ev.item.name))
+        self._open_draft_post(int(ev.item.name))
+
+    def _open_draft_post(self, did):
+        """Open a queued item's post: its card if the post is still in found, else its own copy's URL in the browser."""
+        n = self.post_number_for_draft(did)
         if n:
-            self.action_show_post(n)
+            self.action_show_post(n); return True
+        d = self.bot.queue.get(did)
+        url = (d.post or {}).get("url") or (f"https://x.com/i/status/{d.in_reply_to}" if d.in_reply_to else None)
+        if not url:
+            return False
+        from .opener import open_url_async
+        (self.bot.opener or open_url_async)(url, lambda how: None)
+        self.notify("post no longer in the feed: opened it in the browser", timeout=3)
+        return True
 
     def post_number_for_draft(self, did):
         d = self.bot.queue.get(did)
@@ -1776,10 +1792,7 @@ class XBotApp(App):
         d = self._selected()
         if d is None or self._editing is not None:
             return
-        n = self.post_number_for_draft(d)
-        if n:
-            self.action_show_post(n)
-        else:
+        if not self._open_draft_post(d):
             self.notify("no post for this draft (original post)", timeout=2)
 
     def action_reject(self):

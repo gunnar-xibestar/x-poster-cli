@@ -86,6 +86,10 @@ class Bot:
                                **({"user_hidden": f["user_hidden"], "hide_why": f.get("hide_why")} if f.get("user_hidden") else {})} for f in json.loads(self.found_path.read_text())["posts"]]
             except Exception:
                 self.found = []
+        try:
+            self.queue.backfill_posts(self.found)  # old queue.json: give each item its own post copy
+        except Exception:
+            pass
         from .safety import set_topic_edits
         set_topic_edits(self.cfg.topic_edits)
         if not self.cfg.draft_batch_migrated:  # old default 8 timed out on grok-4.x; a value you set stays
@@ -117,7 +121,7 @@ class Bot:
         self._x_err_logged = None
         if self.llm is None:
             self.log.event("warn", "XAI_API_KEY missing: running X-only (search/mentions listed in /found, no drafting). "
-                           "Add key then /grok on")
+                           "Add the key to ~/.config/xbot/env and restart xbot")
 
     def reads_live(self):
         r = self.cfg.reads_live
@@ -528,7 +532,7 @@ class Bot:
     STOP = set("about after again also another because been before being could does doing down every from have just like more most much only other over really same should some such than that their them then there these they this those through very want what when where which while with would your just will into been here http https".split())
 
     def hide_post(self, n, forever=True, why=None):
-        """h on a card: hide found post #n (feed, suggestions, nav), drop its pending drafts, keep it seen.
+        """h on a card: hide found post #n (feed, suggestions, nav), drop its pre-draft, keep it seen; queued replies stay.
         forever=True: never shown again and not listed in /hidden. Otherwise listed with `why`."""
         p = self.found_post(n)
         self.drop_prefill(p["id"])
@@ -539,15 +543,10 @@ class Bot:
                     q["hide_why"] = list(why)
         if p["id"] not in self.state.seen:
             self.state.seen.append(p["id"]); self.state.save()
-        dropped = 0
-        for d in self.queue.pending():
-            if str(d.in_reply_to) == str(p["id"]):
-                self.queue.reject(d.id); dropped += 1
-        self.export()
+        self.export()  # queued replies to this post stay in the queue (hiding only affects the feed)
         who = p.get("username") or p.get("author_id", "?")
-        self.log.event("align", f"#{n} @{who} hidden" + (" for good" if forever else f" ({'; '.join(why or [])})")
-                       + (f" · dropped {dropped} draft(s)" if dropped else ""))
-        return dropped
+        self.log.event("align", f"#{n} @{who} hidden" + (" for good" if forever else f" ({'; '.join(why or [])})"))
+        return 0
 
     def filter_options(self, p):
         """Candidate filters for 'posts like this': [(value, label)]. value = tag:X | topic:X | word:X."""
@@ -876,7 +875,7 @@ class Bot:
     def filter_mentioner(self, draft_id):
         """Filter the author of a mention reply draft (same effect as q on the mention's card)."""
         d = self.queue.get(draft_id)
-        p = next((p for p in self.found if p["id"] == d.in_reply_to), {})
+        p = d.post or next((p for p in self.found if str(p["id"]) == str(d.in_reply_to)), {})  # queue item's own copy first
         who = (p.get("username") or "").lower()
         if d.source != "mention" or not who:
             raise KeyError("pick a mention reply")
@@ -939,6 +938,32 @@ class Bot:
         return self._enqueue("reply", text, in_reply_to=p["id"], source="manual",
                              conversation_id=p.get("conversation_id") or p["id"])
 
+    @staticmethod
+    def _same_post(qp, p):
+        """Queue post copy vs target post: same id, or same author (username/author_id) AND same created_at."""
+        if not qp or not p:
+            return False
+        if qp.get("id") and p.get("id") and str(qp["id"]) == str(p["id"]):
+            return True
+        def who(x):
+            return (x.get("username") or "").lower() or str(x.get("author_id") or "")
+        return bool(who(qp) and qp.get("created_at") and who(qp) == who(p) and qp["created_at"] == p.get("created_at"))
+
+    def drop_queued_replies(self, post, keep=None):
+        """Before/after replying to `post` another way: delete other pending queued replies to the same post."""
+        if isinstance(post, (str, int)):
+            post = next((p for p in self.found if str(p["id"]) == str(post)), None) or {"id": str(post)}
+        n = 0
+        for d in list(self.queue.pending()):
+            if d.id == keep or d.kind != "reply":
+                continue
+            qp = d.post or ({"id": str(d.in_reply_to)} if d.in_reply_to else None)
+            if self._same_post(qp, post):
+                self.queue.delete(d.id); n += 1
+                who = (d.post or {}).get("username") or post.get("username") or (d.post or {}).get("author_id") or "?"
+                self.log.event("info", f"removed queued reply for @{who}")
+        return n
+
     def browser_reply_to_found(self, n, text, grok_text=None):
         """Ctrl+B in the reply editor: the reply was opened in the browser (X web intent). Record it like an
         approved browser reply: a queue.json draft with status "sent", the post marked replied, its thread in
@@ -946,6 +971,7 @@ class Bot:
         p = self.found_post(n)
         self.learn_style(p["id"], p.get("text", ""), grok_text, text)
         self.drop_prefill(p["id"])
+        self.drop_queued_replies(p)
         conv = p.get("conversation_id") or p["id"]
         d = self._enqueue("reply", text, in_reply_to=p["id"], source="manual", conversation_id=conv)
         self.queue.set_status(d.id, "sent")
@@ -964,6 +990,7 @@ class Bot:
         self.learn_style(p["id"], p.get("text", ""), grok_text, text)
         tid = self.send("reply", text, in_reply_to=p["id"], summoned=p.get("source") == "mention")
         if tid:
+            self.drop_queued_replies(p)
             p["replied"] = True
             self.state.replied_threads.append(p.get("conversation_id") or p["id"])
             self.remove_found(p["id"]); self.state.save()
@@ -974,12 +1001,10 @@ class Bot:
         return tid
 
     def remove_found(self, pid):
-        """Drop a post from the found list (renumbers the rest), its other pending drafts and its F5 cursor entry."""
+        """Drop a post from the found list (renumbers the rest) and its F5 cursor entry. The reply queue is a
+        separate list with its own post copies: queued items are never touched."""
         pid = str(pid)
         self.found = [p for p in self.found if str(p["id"]) != pid]
-        for d in self.queue.pending():
-            if d.in_reply_to and str(d.in_reply_to) == pid:
-                self.queue.set_status(d.id, "rejected")
         self.state.feed_shown = [i for i in self.state.feed_shown if str(i) != pid]
 
     def purge_replied(self):
@@ -1031,7 +1056,7 @@ class Bot:
         elif not manual and not self._pace_ok(False):
             left = self.rate_limited(manual)
             self.last_draft_error = (f"key limit {self.cfg.llm_rpm}/min reached: try again in {left}s" if manual
-                                     else f"auto drafting paced at {self.cfg.llm_auto_rpm}/min: next in {left}s")
+                                     else f"pre-drafting paced at {self.cfg.llm_auto_rpm}/min: next in {left}s")
             return None
         try:
             self.llm.last_cost_usd = 0.0
@@ -1044,8 +1069,8 @@ class Bot:
             return t if raw else t[: self.cfg.max_chars]
         except LLMFatal as e:
             self.paused = True
-            self.last_draft_error = "xAI auth/credit error, bot paused"
-            self.log.event("error", f"{e} -- bot PAUSED. Fix key/credits then /resume.")
+            self.last_draft_error = "xAI auth/credit error, pre-drafting paused"
+            self.log.event("error", f"{e} -- Grok pre-drafting PAUSED. Fix key/credits then /resume (or p).")
         except LLMRateLimited as e:
             self.llm_backoff_until = self._clock() + e.retry_after
             self.last_draft_error = f"xAI rate limit: retrying in {int(e.retry_after)}s"
@@ -1103,7 +1128,7 @@ class Bot:
             if self.auto_wait_until:
                 if not self._pace_logged:
                     self._pace_logged = True
-                    self.log.event("info", f"auto drafting paced at {lim}/min (llm_auto_rpm; key limit llm_rpm={rpm}, "
+                    self.log.event("info", f"pre-drafting paced at {lim}/min (llm_auto_rpm; key limit llm_rpm={rpm}, "
                                            "the rest is kept for g): remaining drafts fill in gradually")
                 return False
         self._llm_calls.append((now, manual))
@@ -1137,6 +1162,9 @@ class Bot:
     def _enqueue(self, kind, text, **kw):
         if kw.get("source") in ("mention", "search"):
             kw.setdefault("grok_text", text)
+        if kw.get("in_reply_to") and kw.get("post") is None:
+            from .queue import snapshot_post
+            kw["post"] = snapshot_post(next((p for p in self.found if str(p["id"]) == str(kw["in_reply_to"])), None))
         d = self.queue.add(kind, text, **kw)
         tgt = f" ->{d.in_reply_to}" if d.in_reply_to else ""
         self.log.event("draft", f"#{d.id} {d.source} {kind}{tgt}: {text}")
@@ -1151,7 +1179,7 @@ class Bot:
 
     def tick(self, force_search=False):
         """One poll cycle: mentions + (search if due or forced). Returns number of drafts created."""
-        if self.paused or self.stopped:
+        if self.stopped:
             return 0
         self.ticks += 1
         self.last_check = __import__("time").time()
@@ -1181,20 +1209,17 @@ class Bot:
         if self.cfg.search_enabled and (force_search or (self.cfg.search_every_n_ticks
                 and (self.ticks - 1) % self.cfg.search_every_n_ticks == 0)):
             made += self._search()
-            if self.paused:
-                return made
-        if self.grok_on:  # one scheduler for both queues (emptiest first, then shared prefill pool)
+        if self.predrafting():  # Grok pre-drafts replies for feed posts (stored, shown when you open a post)
             made += self.schedule_drafts()
-            if self.paused:
-                return made
-        # original posts
-        if self.grok_on and self.cfg.post_every_n_ticks and self.ticks % self.cfg.post_every_n_ticks == 0 and not self.queue_full():
-            topic = self.rng.choice(self.cfg.topics) if self.cfg.topics else "anything"
-            t = self._draft(f"Write an original post about: {topic}")
-            if t:
-                self._enqueue("post", t, context=topic)
-                made += 1
         return made
+
+    def predrafting(self):
+        """True when Grok is connected and pre-drafting is not paused (p, /pause, spend limit, xAI auth error, /clear)."""
+        return bool(self.grok_on and not self.paused and not self.stopped and not getattr(self, "drafting_hold", False))
+
+    def status_word(self):
+        """STOPPED, ACTIVE (Grok connected + pre-drafting) or PAUSED (Grok off/not connected or pre-drafting paused)."""
+        return "STOPPED" if self.stopped else "ACTIVE" if self.predrafting() else "PAUSED"
 
     def _note_oldest(self, pid):
         if self.search_oldest_id is None or int(pid) < int(self.search_oldest_id):
@@ -1349,17 +1374,15 @@ class Bot:
         return (mp - len(self.queue.pending_capped())) if mp > 0 else 10**6
 
     def _accept(self, p, t, kind="search"):
+        """Grok answer for a feed post: SKIP marks it skipped, anything else is stored as its pre-draft
+        (shown when you open the post; nothing is queued or sent automatically)."""
         who = p.get("username") or p.get("author_id", "?")
-        if kind == "mention" and t.strip().upper().rstrip(".") != "SKIP":
-            self._enqueue("reply", t[: self.cfg.max_chars], in_reply_to=p["id"], context=p["text"], source="mention",
-                          conversation_id=p.get("conversation_id"))
-            return 1
         if t.strip().upper().rstrip(".") == "SKIP":
-            self._skipped.add(p["id"])
-            self.log.event("skip", f"@{who}: {clip(p['text'], 80)}")
+            if kind != "mention":
+                self._skipped.add(p["id"])
+                self.log.event("skip", f"@{who}: {clip(p['text'], 80)}")
             return 0
-        self._enqueue("reply", t[: self.cfg.max_chars], in_reply_to=p["id"], context=f"@{who}: {p['text']}",
-                      source="search", conversation_id=p.get("conversation_id") or p["id"])
+        self.state.prefill[str(p["id"])] = t[: self.cfg.max_chars]
         return 1
 
     # ---- prefill pool: drafts for upcoming feed posts, promoted into free slots without an API call ----
@@ -1384,10 +1407,7 @@ class Bot:
         return sorted(self.mentions_waiting(), key=lambda p: int(p["id"])) if kind == "mention" else self.search_catalog()
 
     def _free(self, kind):
-        if kind == "mention":
-            cap = self.cfg.max_mention_drafts
-            return cap - len(self.mention_pending()) if cap > 0 else 10**6
-        return 0 if self.queue_full() else max(0, self._search_slots())
+        return 0  # auto drafts into the queue were removed: Grok only pre-drafts (prefill pool)
 
     def _ratio(self, kind):
         cap = self.cfg.max_mention_drafts if kind == "mention" else self.cfg.max_pending
@@ -1406,8 +1426,6 @@ class Bot:
 
     def _kind_room(self, kind):
         """Prefill room for one kind: the pool is shared fairly (half each while both have posts waiting)."""
-        if self._batch_n() == 1:
-            return 0  # draft_batch 1 = one post per request, no prefill
         room = self._prefill_room()
         other = "search" if kind == "mention" else "mention"
         if self._unprefilled(self._cands(other)):
@@ -1445,17 +1463,7 @@ class Bot:
         return None
 
     def promote_prefill(self, posts=None):
-        made = 0
-        for kind in self.KINDS:
-            for p in self._cands(kind) if posts is None else [q for q in posts if (q.get("source") == "mention") == (kind == "mention")]:
-                if self._free(kind) <= 0:
-                    break
-                t = self.state.prefill.pop(str(p["id"]), None)
-                if t:
-                    made += self._accept(p, t, kind)
-        if made:
-            self.state.save()
-        return made
+        return 0  # pre-drafts stay attached to their post (no auto-queue to promote into)
 
     def _prefill_room(self):
         return max(0, int(self.cfg.prefill_max) - len(self.state.prefill))
@@ -1482,8 +1490,7 @@ class Bot:
         prefill pool, which is only filled on its own once both queues are full. No request when all is full."""
         if getattr(self, "drafting_hold", False):
             return 0  # bare /clear: paused until F5
-        made = self.promote_prefill()
-        waiting = len(self.mentions_waiting())
+        made = 0
         for _ in range(max_requests):
             job = self.next_job(only)
             if job is None:
@@ -1520,57 +1527,26 @@ class Bot:
                 t = got.get(str(p["id"]))
                 if not t:
                     self._skipped.add(p["id"]); continue  # unanswered: don't re-ask forever
-                if t.strip().upper().rstrip(".") == "SKIP" or self._free(kind) > 0:
-                    made += self._accept(p, t, kind)
-                else:
-                    self.state.prefill[str(p["id"])] = t[: self.cfg.max_chars]
+                made += self._accept(p, t, kind)
             self.state.save()
             if self.rate_limited():
                 break
-        left = len(self.mentions_waiting())
-        cap = self.cfg.max_mention_drafts
-        if left and cap > 0 and self._free("mention") <= 0 and left != waiting:
-            self.log.event("info", f"{left} mention(s) waiting: mention drafts at {cap}/{cap}; "
-                                   f"approve/reject one and the next is drafted")
         return made
 
     def _fallback_single(self, kind, chunk):
         made = 0
-        for p in chunk[:max(1, min(len(chunk), self._free(kind)))]:
+        for p in chunk:
             prompt = f"Reply to this post that mentions us:\n\n{p['text']}" if kind == "mention" else self._single_prompt(p)
             t = self._draft(prompt)
             if self.paused or self.rate_limited():
                 break
             if t:
                 made += self._accept(p, t, kind)
+        self.state.save()
         return made
 
     def _draft_search(self, posts):
         return self.schedule_drafts(only="search")
-
-    def _draft_search_single(self, posts):
-        made = 0
-        for p in posts:
-            conv = p.get("conversation_id") or p["id"]
-            if self.queue_full():
-                break
-            who = p.get("username") or p.get("author_id", "?")
-            skip = self.SKIP_RULE if self.cfg.allow_skip else ""
-            t = self._draft(f"Post by @{who}:\n\n{p['text']}\n\nWrite a relevant, specific, non-spammy reply that adds "
-                            f"value. No self-promotion, no links, no hashtags.{skip}")
-            if self.paused or self.rate_limited():
-                break
-            if not t:
-                continue
-            if t.strip().upper().rstrip(".") == "SKIP":
-                self._skipped.add(p["id"])
-                self.log.event("skip", f"@{who}: {clip(p['text'], 80)}")
-                continue
-            self._enqueue("reply", t, in_reply_to=p["id"], context=f"@{who}: {p['text']}", source="search",
-                          conversation_id=conv)
-            made += 1
-        self.state.save()
-        return made
 
     def catalog_size(self):
         """Feed posts/mentions still waiting for a draft (not replied, rejected, drafted or hidden)."""
@@ -1653,21 +1629,20 @@ class Bot:
 
     def wants_drafting(self):
         """Background worker: something to draft or promote. False when everything is full (no Grok request)."""
-        if not (self.grok_on and not self.paused and not self.stopped) or getattr(self, "drafting_hold", False):
+        if not self.predrafting():
             return False
-        for k in self.KINDS:
-            if self._free(k) > 0 and any(str(p["id"]) in self.state.prefill for p in self._cands(k)):
-                return True
         return self.next_job() is not None
 
     def drafting_status(self):
-        pre = f"prefilled {len(self.state.prefill)}" if self.state.prefill else ""
+        pre = f"pre-drafted {len(self.state.prefill)}" if self.state.prefill else ""
         if getattr(self, "drafting_hold", False):
-            return " · ".join(x for x in ("drafting paused (F5 resumes)", pre) if x)
+            return " · ".join(x for x in ("pre-drafting paused (F5 resumes)", pre) if x)
         if not self.grok_on:
             return pre
+        if self.paused:
+            return " · ".join(x for x in ("pre-drafting paused (p resumes)", pre) if x)
         if not self.wants_drafting():
-            st = "drafts full" if not self.paused else ""
+            st = "pre-drafts ready"
         else:
             left = self.rate_limited()
             st = f"drafting… next in {left}s" if left else "drafting…"
@@ -1703,12 +1678,16 @@ class Bot:
     def _is_mention_target(self, d):
         if d.source == "mention":
             return True
+        if (d.post or {}).get("source") == "mention":
+            return True
         return any(p["id"] == str(d.in_reply_to) and p.get("source") == "mention" for p in self.found)
 
     def approve(self, did):
         d = self.queue.get(did)
+        if d.kind == "reply" and d.status == "pending" and (d.post or d.in_reply_to):
+            self.drop_queued_replies(d.post or str(d.in_reply_to), keep=did)
         if d.kind == "reply" and d.grok_text:
-            post = next((p.get("text", "") for p in self.found if str(p["id"]) == str(d.in_reply_to)), d.context)
+            post = (d.post or {}).get("text") or next((p.get("text", "") for p in self.found if str(p["id"]) == str(d.in_reply_to)), d.context)
             self.learn_style(d.in_reply_to, post, d.grok_text, d.text)
         if d.kind == "reply" and d.in_reply_to and not self._is_mention_target(d):
             # X blocks API replies to posts that didn't mention you: open the prefilled reply page instead
@@ -1740,9 +1719,11 @@ class Bot:
     def handle(self, c: Command):
         n, ev = c.name, self.log.event
         if n == "pause":
-            self.paused = True; ev("ctl", "paused")
+            self.paused = True; ev("ctl", "Grok pre-drafting paused (status PAUSED; feed and manual g drafts still work)")
         elif n == "resume":
-            self.paused = False; ev("ctl", "resumed")
+            self.paused = False
+            ev("ctl", "Grok pre-drafting resumed (status ACTIVE)" if self.grok_on
+               else "pre-drafting resumed, but Grok is not connected (status PAUSED until an xAI key works)")
         elif n == "stop":
             self.stopped = True; ev("ctl", "stopping")
         elif n == "align":
@@ -1798,7 +1779,9 @@ class Bot:
         elif n == "post":
             self._enqueue("post", c.text, source="manual")
         elif n == "reply":
-            self._enqueue("reply", c.text, in_reply_to=self.resolve_id(c.args[0]), source="manual")
+            rid = self.resolve_id(c.args[0])
+            d = self._enqueue("reply", c.text, in_reply_to=rid, source="manual")
+            self.drop_queued_replies(d.post or str(rid), keep=d.id)
         elif n == "search":
             if c.text == "help":
                 from .help import SEARCH_TIPS
@@ -1905,20 +1888,6 @@ class Bot:
                 else:
                     ev("warn", f"no browser opener worked; open manually: {url}")
             (self.opener or open_url_async)(url, done)
-        elif n == "grok":
-            if not c.args[0]:
-                self.llm = None; ev("ctl", "grok OFF (X-only)")
-            else:
-                try:
-                    self.llm = self.llm_factory() if self.llm_factory else self.llm
-                except Exception as e:
-                    ev("error", f"grok still off: {e}")
-                else:
-                    ev("ctl", "grok ON: drafting enabled" if self.llm else "grok: no LLM factory")
-                    self.paused = False
-                    if self.llm:
-                        k = self.refill_from_catalog()
-                        if k: ev("info", f"drafted {k} replies from the catalog")
         elif n == "tick":
             if getattr(self, "drafting_hold", False):
                 self.drafting_hold = False; ev("ctl", "drafting resumed (F5)")
@@ -1932,8 +1901,8 @@ class Bot:
             if not self.grok_on:
                 why = " (grok off: X-only)"
             elif self.rate_limited() and self.catalog_size():
-                why = f" ({self.catalog_size()} waiting; next auto draft in {self.rate_limited()}s)"
-            ev("info", f"manual check: {made} drafts{why}")
+                why = f" ({self.catalog_size()} waiting; next pre-draft in {self.rate_limited()}s)"
+            ev("info", f"manual check: {made} pre-drafts{why}")
         elif n == "feed":
             if c.args == ["reset"]:
                 self.state.feed_shown = []; self.state.save()
@@ -1953,7 +1922,7 @@ class Bot:
             ev("help", render_cmd(c.text) if c.text else render_help())
 
     def status(self):
-        st = "STOPPED" if self.stopped else "PAUSED" if self.paused else "RUNNING"
+        st = self.status_word()
         pend = len(self.queue.pending_capped())
         nm = len(self.queue.pending()) - pend
         full = (" FULL" if self.cfg.max_pending and pend >= self.cfg.max_pending else "") + (f" | mentions={nm}/{self.cfg.max_mention_drafts or '∞'}" if nm else "") + f" | waiting={self.catalog_size()}"

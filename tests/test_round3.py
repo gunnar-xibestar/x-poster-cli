@@ -1,3 +1,4 @@
+from tests.conftest import queue_predrafts
 import pytest, requests
 from textual.widgets import TextArea
 from xbot.xapi import RealX, XNetError
@@ -81,7 +82,7 @@ async def test_queue_click_only_highlights_o_opens(mk):
     b = mk(FakeLLM(["hey"]), [{"id": "7", "text": "@me sup"}], post_every_n_ticks=0)
     app = XBotApp(bot=b, autostart=False)
     async with app.run_test(size=(140, 40)) as pilot:
-        b.tick(); app.refresh_ui(); await pilot.pause()
+        b.tick(); queue_predrafts(b); app.refresh_ui(); await pilot.pause()
         app.query_one("#cmd").focus(); await pilot.pause()
         q = app.query_one("#queue")
         item = [c for c in q.children if c.name][0]

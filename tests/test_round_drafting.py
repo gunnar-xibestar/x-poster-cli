@@ -21,7 +21,7 @@ class JsonLLM(FakeLLM):
 def test_batch_one_request_for_four_posts(mk):
     llm = JsonLLM()
     b = mk(llm, search=[P(i) for i in range(1, 6)], draft_batch=4, **S(max_pending=10)); b.tick()
-    texts = [d.text for d in b.queue.pending()]
+    texts = list(b.state.prefill.values()); assert b.queue.pending() == []
     assert "nice 1" in texts and "nice 5" in texts and not any("SKIP" in t for t in texts)
     assert llm.calls == 2  # 4 + 1 posts
 
@@ -29,7 +29,7 @@ def test_batch_one_request_for_four_posts(mk):
 def test_batch_falls_back_when_not_json(mk):
     llm = JsonLLM(fmt=False)
     b = mk(llm, search=[P(i) for i in range(1, 4)], draft_batch=4, **S(max_pending=10)); b.tick()
-    assert len(b.queue.pending()) == 3
+    assert len(b.state.prefill) == 3 and b.queue.pending() == []
 
 
 def test_parse_batch_rejects_junk():
@@ -62,7 +62,7 @@ def test_wants_drafting_and_title(mk):
     b = mk(xonly=True, search=[P(i) for i in range(1, 4)], **S(max_pending=10)); b.tick()
     b.llm = FakeLLM(["r"])
     assert b.wants_drafting() and "drafting" in drafts_title(b)
-    b.paused = True; assert not b.wants_drafting() and "drafting" not in drafts_title(b)
+    b.paused = True; assert not b.wants_drafting() and "pre-drafting paused" in drafts_title(b) and b.status_word() == "PAUSED"
 
 
 async def test_background_worker_fills_without_f5(mk):
@@ -72,7 +72,7 @@ async def test_background_worker_fills_without_f5(mk):
     app = XBotApp(bot=b, autostart=False)
     async with app.run_test(size=(140, 40)) as pilot:
         app.run_worker(app.loop()); await pilot.pause(2.5)
-        assert len(b.queue.pending()) == 3
+        assert len(b.state.prefill) == 3 and b.queue.pending() == []  # pre-drafted, never auto-queued
         b.stopped = True
 
 
@@ -93,9 +93,9 @@ async def test_like_key_uses_api_not_browser(mk):
 def test_fill_then_prefill_one_request(mk):
     llm = JsonLLM()
     b = mk(llm, search=[P(i) for i in range(1, 8)], draft_batch=8, prefill_max=20, **S(max_pending=2)); b.tick()
-    assert llm.calls == 1 and len(b.queue.pending()) == 2
-    assert set(b.state.prefill) == {"4", "5", "6", "7"}  # 1,3 queued; 2 was SKIP
-    assert "prefilled 4" in drafts_title(b) and "drafts full" in drafts_title(b)
+    assert llm.calls == 1 and b.queue.pending() == []
+    assert set(b.state.prefill) == {"1", "3", "4", "5", "6", "7"}  # 2 was SKIP
+    assert "pre-drafted 6" in drafts_title(b) and "pre-drafts ready" in drafts_title(b)
 
 
 def test_everything_full_makes_no_llm_call(mk):
@@ -113,13 +113,15 @@ def test_prefill_cap_stops_requests(mk):
     n = llm.calls; b.refill_from_catalog(); assert llm.calls == n
 
 
-def test_freed_slot_promotes_without_api(mk):
+def test_reject_never_auto_queues(mk):
     from xbot.commands import parse
+    from tests.conftest import queue_predrafts
     llm = JsonLLM()
-    b = mk(llm, search=[P(i) for i in range(3, 8)], draft_batch=8, **S(max_pending=2)); b.tick()
-    n = llm.calls; first = b.queue.pending()[0]
+    b = mk(llm, search=[P(i) for i in range(3, 8)], draft_batch=8, prefill_max=2, **S(max_pending=2)); b.tick()
+    assert queue_predrafts(b) == 2; b.tick()
+    n = llm.calls; first = b.queue.pending()[0]; pre = dict(b.state.prefill)
     b.handle(parse(f"/reject @{first.id}"))
-    assert llm.calls == n and len(b.queue.pending()) == 2 and "5" not in b.state.prefill
+    assert llm.calls == n and len(b.queue.pending()) == 1 and b.state.prefill == pre
 
 
 def test_prefill_persists_and_g_uses_it(mk, tmp_path):

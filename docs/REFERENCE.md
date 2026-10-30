@@ -1,7 +1,7 @@
 # xbot — Grok-powered X bot console (TUI)
 
-Long-running terminal console: a Grok bot polls your X mentions, drafts replies and occasional
-original posts, and puts **every draft in an approval queue**. Nothing is sent until you approve.
+Long-running terminal console: a Grok bot polls your X mentions and search, pre-drafts replies
+you see when you open a post, and puts **every reply you save in an approval queue**. Nothing is sent until you approve.
 Reads and sends are separate:
 - **reads** (mentions + search): `auto` by default = live when all four X keys are present, else fake. `/reads live|off|auto`.
 - **send**: **dry by default** (approved posts are only logged). `/send live|dry` (`/dryrun on|off` is an alias).
@@ -30,7 +30,7 @@ use `https://api.x.ai/v1` to go direct), `XBOT_MODEL` (default `grok-4.7`).
 ```
 Panes: action feed (left), pending drafts (right), status line, command input.
 Keys (when the draft list is focused; F6 to switch focus; in the input, Tab completes commands / `/filter` subcommands / topic names and Up/Down browse command history persisted to `$XBOT_STATE_DIR/history.txt`, max 500 lines, secret-looking lines skipped): `a` approve+send, `r` reject,
-`e` edit (loads text into input, Enter saves), `p` pause/resume, `f` found-post browser, `h` search history (past `/search` / `xbot search` queries, newest first, deduped, last 100, stored 0600 in `~/.local/state/xbot/search_history.json`; Enter or click fills the input with `/search <query>`, Esc closes; in a post card `h` still hides), `Ctrl+C` or `Ctrl+Q` quit (also SIGINT/SIGTERM): stops auto-search, saves queue/state, logs "stopped". Search runs automatically only while the app is open.
+`e` edit (loads text into input, Enter saves), `p` pause/resume Grok pre-drafting (status bar ACTIVE = Grok connected and pre-drafting; PAUSED = Grok off/not connected or pre-drafting paused), `f` found-post browser, `h` search history (past `/search` / `xbot search` queries, newest first, deduped, last 100, stored 0600 in `~/.local/state/xbot/search_history.json`; Enter or click fills the input with `/search <query>`, Esc closes; in a post card `h` still hides), `Ctrl+C` or `Ctrl+Q` quit (also SIGINT/SIGTERM): stops auto-search, saves queue/state, logs "stopped". Search runs automatically only while the app is open.
 
 ## Demo mode
 ```bash
@@ -46,7 +46,7 @@ mention polling and tech search continue, and every new post is shown in the fee
 `#n [search] …123456 @author: snippet  [post]` (clickable labels `[post]`, `[media]` (opens the mpv viewer); on cards also `[profile]`; raw URLs are not shown) instead of being drafted.
 - `/found` lists the most recent 15; `/found N` shows full text + link.
 - `/reply #N <text>` (or `/reply <tweet_id> <text>`) and `/post <text>` queue drafts for approval as usual.
-- Add the key to `~/.config/xbot/env` (or the environment) and run `/grok on` — no restart needed. `/grok off` goes back to X-only.
+- Add the key to `~/.config/xbot/env` (or the environment) and restart xbot. Without a key it runs X-only.
 
 Missing X credentials with `/dryrun off` are reported once in the feed (no crash); sends are marked failed.
 
@@ -81,7 +81,7 @@ lines (`#rust`), in post cards, and in found.json (`tags`).
 - Typed: `/filter edit <topic> +word -word`, `/filter reset <topic>`. `/filter show <word>` removes a sub-word from
   whichever broad topic caught it.
 - `/hidden` pop-up: `a` toggles last check / all, `Enter` opens, `u` stops filtering that word.
-- Auto-reply queue: mention replies are always drafted, listed first and not counted toward the 10-suggestion limit
+- Reply queue (manual only: nothing is drafted into it automatically any more). Previously: mention replies were always drafted, listed first and not counted toward the 10-suggestion limit
   (title `N mentions · x/10`, status `pending=x/10 +N mentions`). `q` on a mention's post card filters that mentioner
   (future mentions hidden, pending drafts dropped); `/filter hide|show @someone`; saved as `filtered_mentioners`.
 
@@ -101,8 +101,8 @@ With `send=dry` it only logs `[DRY-MUTE]` and blocks locally. 403/402/401 errors
 stays blocked locally. Your own user id is cached in state.json (`me_id`).
 
 ## Drafts panel
-The right panel is titled **Auto replies (Grok drafts) n/10**; its footer shows `o open · a approve · e edit · r reject …`. Clicking a draft only highlights it; `o` (or Enter) opens its post. The highlighted card expands just enough to show the full original post and the full drafted reply (other cards stay compact, reply clipped). `e` on it swaps the reply for a wrapped editor in the same spot, prefilled; Enter or Ctrl+S saves (same `/edit` path, so style learning still applies), Esc cancels; the card then shows the expanded text again.
-When empty it explains why (Grok off → add XAI_API_KEY and `/grok on`; Grok on → `/tick` or `g` on a post).
+The right panel is titled **Reply queue n/10**; its footer shows `o open · a approve · e edit · r reject …`. Clicking a draft only highlights it; `o` (or Enter) opens its post. The highlighted card expands just enough to show the full original post and the full drafted reply (other cards stay compact, reply clipped). `e` on it swaps the reply for a wrapped editor in the same spot, prefilled; Enter or Ctrl+S saves (same `/edit` path, so style learning still applies), Esc cancels; the card then shows the expanded text again.
+When empty it explains why (Grok off → add XAI_API_KEY and restart; Grok on → `/tick` or `g` on a post).
 
 ## X labels
 Besides our keyword tags, each found post keeps X's own labels (requested in the same search/mentions call):
@@ -144,7 +144,7 @@ Every `search_every_n_ticks` polls (default 5, i.e. ~10 min at 120 s) the bot ca
 `-is:retweet -is:reply -is:quote lang:en min_likes:20`) and `max_results` 10. Seen post ids and replied
 threads are persisted (`state.json`); own posts are skipped. Grok gets the text + @author and may answer `SKIP`.
 At most `max_replies_per_hour` (6) live replies are SENT per hour (drafts are not counted). A background worker keeps drafting (no F5 needed; the queue title shows `drafting… next in Ns`), up to `draft_batch` (4) posts per Grok request as JSON, each request going to the emptier of the mention / suggested queues (ties alternate; mentions are prefilled too, sharing the pool) (fills free slots, the rest go to a stored prefill pool up to `prefill_max`, 20; freed slots promote from the pool with no API call; title shows `prefilled N` and `drafts full` when nothing needs Grok), and drafting stops when
-`max_pending` (4) suggested drafts are waiting. Mention replies have their own cap, `max_mention_drafts` (4, `/maxmentions n`, 0 = unlimited): extra mentions stay in the feed undrafted (status `+N waiting`) and the oldest waiting one is drafted on the next check after you approve/reject/filter one. `F5` (anywhere, even while typing) = `/tick` ("Refresh feed + catalog"): fetches into the feed. The **catalog** (waiting pool) is every feed post/mention without a draft that is not replied, rejected, SKIPped or hidden; status shows `waiting=N`, panel section headers `N shown · M waiting`. Approve/reject/`/clear` and `/grok on` draw from the catalog immediately (no network) up to `max_mention_drafts` + `max_pending`. X-only mode only fills the catalog. `/clear mentions|suggested` (queue keys `X` / `x`, y/n confirm) rejects all pending drafts of that kind.
+`max_pending` (4) suggested drafts are waiting. Mention replies have their own cap, `max_mention_drafts` (4, `/maxmentions n`, 0 = unlimited): extra mentions stay in the feed undrafted (status `+N waiting`) and the oldest waiting one is drafted on the next check after you approve/reject/filter one. `F5` (anywhere, even while typing) = `/tick` ("Refresh feed + catalog"): fetches into the feed. The **catalog** (waiting pool) is every feed post/mention without a draft that is not replied, rejected, SKIPped or hidden; status shows `waiting=N`, panel section headers `N shown · M waiting`. Approve/reject/`/clear` draw from the catalog immediately (no network) up to `max_mention_drafts` + `max_pending`. X-only mode only fills the catalog. `/clear mentions|suggested` (queue keys `X` / `x`, y/n confirm) rejects all pending drafts of that kind.
 
 ### Search operator tips
 `/search help` (or bare `/search`, or `/help search`) prints these without changing the query or calling X.
@@ -167,10 +167,10 @@ Status shows an estimated X spend for today (UTC day, live mode only): reads $0.
 owned reads), posts $0.015, summoned replies $0.010, any URL $0.20 (drafts with URLs get a warning).
 `/cap <usd>` sets a daily cap (0=off); when hit, sending and searching stop.
 
-Commands: `/pause /resume /stop /status /help /tick` (poll now), `/align <persona text>`,
+Commands: `/pause /resume` (Grok pre-drafting) `/stop /status /help /tick` (poll now), `/align <persona text>`,
 `/posttopics a, b, c`, `/model <name>`, `/post <text>`, `/reply <tweet_id> <text>`,
 `/approve <n> /reject <n> /edit <n> <text>`, `/dryrun on|off`, `/search <query>`, `/searchon`, `/searchoff`, `/backfill on|off` (fill short searches with older posts via `until_id`; last 7 days only),
-`/found [N|mentions|search]`, `/topics`, `/exclude <tag>`, `/include <tag>`, `/excluded`, `/block @h`, `/unblock @h`, `/blocked`, `/mute @h`, `/unmute @h`, `/muted`, `/show N`, `/open N`, `/export`, `/reads live|off|auto`, `/send live|dry`, `/grok on|off`, `/maxresults N` (10-100), `/maxpending N`, `/cap <usd>`.
+`/found [N|mentions|search]`, `/topics`, `/exclude <tag>`, `/include <tag>`, `/excluded`, `/block @h`, `/unblock @h`, `/blocked`, `/mute @h`, `/unmute @h`, `/muted`, `/show N`, `/open N`, `/export`, `/reads live|off|auto`, `/send live|dry`, `/maxresults N` (10-100), `/maxpending N`, `/cap <usd>`.
 `/post` and `/reply` also go into the approval queue.
 
 ## Help & colors
@@ -201,7 +201,7 @@ shown and it isn't retried. There is no paid fallback. The spend estimate has no
 - `~/.local/state/xbot/state.json` — seen ids, replied threads, spend, hourly counter
 
 ## Errors
-xAI auth / permission / out-of-credit errors **pause the bot** with a red-flag feed line — no retry loop.
+xAI auth / permission / out-of-credit errors **pause Grok pre-drafting** (status PAUSED) with a red-flag feed line — no retry loop.
 Fix the key/credits and `/resume`. Transient errors (proxy down, 5xx) are logged and retried next poll.
 X API errors (401/402 credits/403 tier/429) are logged per call.
 

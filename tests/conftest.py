@@ -37,3 +37,19 @@ def no_real_browser(monkeypatch):
     import xbot.app as ap
     if hasattr(ap, "open_url_async"):
         monkeypatch.setattr(ap, "open_url_async", lambda url, done: done(None))
+
+
+def queue_predrafts(b):
+    """Simulate the user saving each Grok pre-draft to the queue (g + Ctrl+E): auto drafts never
+    populate the queue on their own any more. Oldest first, mentions before search. Returns count."""
+    n = 0
+    for p in sorted(b.found, key=lambda p: (p.get("source") != "mention", int(p["id"]))):
+        t = b.state.prefill.pop(str(p["id"]), None)
+        if t:
+            who = p.get("username") or p.get("author_id", "?")
+            b._enqueue("reply", t, in_reply_to=p["id"], source="mention" if p.get("source") == "mention" else "search",
+                       context=p["text"] if p.get("source") == "mention" else f"@{who}: {p['text']}",
+                       conversation_id=p.get("conversation_id") or p["id"])
+            n += 1
+    b.state.save()
+    return n

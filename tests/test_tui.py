@@ -1,3 +1,4 @@
+from tests.conftest import queue_predrafts
 import pytest
 from xbot.app import XBotApp
 from xbot.llm import FakeLLM
@@ -8,7 +9,7 @@ async def test_tui_launch_and_approve(mk):
     b = mk(FakeLLM(["hey"]), [{"id": "7", "text": "@me sup"}], post_every_n_ticks=0)
     app = XBotApp(bot=b, autostart=False)
     async with app.run_test() as pilot:
-        b.tick(); app.refresh_ui(); await pilot.pause()
+        b.tick(); queue_predrafts(b); app.refresh_ui(); await pilot.pause()
         app.query_one("#queue").focus(); await pilot.pause()
         await pilot.press("a"); await pilot.pause()
         assert b.dry_x.sent and b.dry_x.sent[0]["in_reply_to"] == "7"

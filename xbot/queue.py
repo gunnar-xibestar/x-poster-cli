@@ -20,6 +20,18 @@ class Draft:
     source: str = "bot"  # bot|mention|search|manual
     conversation_id: Optional[str] = None
     grok_text: Optional[str] = None  # original Grok draft (style learning)
+    post: Optional[dict] = None  # own copy of the replied-to post (id, text, author, url, media...): independent of found/search
+
+
+def snapshot_post(p):
+    """Deep copy of a found/search post for a queue item (never a reference into found)."""
+    import copy
+    if not p:
+        return None
+    c = copy.deepcopy({k: v for k, v in p.items() if k not in ("user_hidden", "hide_why", "replied")})
+    c["id"] = str(c.get("id"))
+    c.setdefault("url", f"https://x.com/i/status/{c['id']}")
+    return c
 
 
 class DraftQueue:
@@ -35,6 +47,20 @@ class DraftQueue:
             self.items = [Draft(**{k: v for k, v in d.items() if k in fields}) for d in data.get("items", [])]
             self._next = data.get("next", len(self.items) + 1)
 
+    def backfill_posts(self, found):
+        """Old queue.json items have no post copy: copy it from found once (if still there), else a minimal one."""
+        by_id = {str(p["id"]): p for p in found or []}
+        changed = False
+        for d in self.items:
+            if d.post is None and d.in_reply_to:
+                src = by_id.get(str(d.in_reply_to))
+                d.post = snapshot_post(src) if src else {"id": str(d.in_reply_to), "text": d.context or "",
+                                                          "url": f"https://x.com/i/status/{d.in_reply_to}"}
+                changed = True
+        if changed:
+            self._save()
+        return changed
+
     def _save(self):
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -44,9 +70,9 @@ class DraftQueue:
             from .secure import write_private
             write_private(self.path, json.dumps({"next": self._next, "items": [asdict(d) for d in self.items]}))
 
-    def add(self, kind, text, in_reply_to=None, context="", source="bot", conversation_id=None, grok_text=None):
+    def add(self, kind, text, in_reply_to=None, context="", source="bot", conversation_id=None, grok_text=None, post=None):
         d = Draft(self._next, kind, text, in_reply_to, context, source=source, conversation_id=conversation_id,
-                  grok_text=grok_text)
+                  grok_text=grok_text, post=post)
         self._next += 1
         self.items.append(d)
         self._save()
@@ -81,6 +107,9 @@ class DraftQueue:
 
     def reject(self, did):
         self._check(did); return self.set_status(did, "rejected")
+
+    def delete(self, did):
+        d = self.get(did); self.items.remove(d); self._save(); return d
 
     def edit(self, did, text):
         d = self._check(did); d.text = text; self._save(); return d

@@ -29,14 +29,14 @@ def test_auto_paced_1_per_minute_and_resumes(mk):
     clk, llm = Clock(), Counting()
     b = mk(llm, _ments(4), clock=clk, post_every_n_ticks=0, **PACED)
     b.tick()
-    assert llm.calls == 1 and len(b.mention_pending()) == 1
+    assert llm.calls == 1 and len(b.state.prefill) == 1 and not b.mention_pending()
     assert 0 < b.rate_limited() <= 60 and "paced" in (b.last_draft_error or "")
     clk.t += 30; b.refill_from_catalog(); b.tick()
     assert llm.calls == 1  # still inside the window: no extra auto call
     clk.t += 31
     assert b.retry_due()
     b.tick()
-    assert llm.calls == 2 and len(b.mention_pending()) == 2
+    assert llm.calls == 2 and len(b.state.prefill) == 2
 
 
 def test_window_never_exceeds_rpm(mk):
@@ -63,14 +63,14 @@ def test_manual_g_never_blocked_by_auto(mk):
     b.tick()
     assert llm.calls == 1 and b.rate_limited() > 0
     assert b.rate_limited(manual=True) == 0
-    assert b.draft_for_post(1)  # manual slot still free
+    assert b.draft_for_post(4)  # manual slot still free (#4 has no pre-draft yet)
     assert llm.calls == 2
     waited = []
     b.sleep = lambda s: (waited.append(s), setattr(clk, "t", clk.t + s))
-    assert b.draft_for_post(1) and waited and 0 < waited[0] <= 61  # g waits for the slot, never refused
+    assert b.draft_for_post(4) and waited and 0 < waited[0] <= 61  # g waits for the slot, never refused
     assert llm.calls == 3
     clk.t += 61
-    assert b.draft_for_post(1)
+    assert b.draft_for_post(4)
 
 
 def test_configurable_limits(mk):
@@ -104,11 +104,11 @@ def test_startup_and_f5_populate_with_defaults(mk):
     clk, llm = Clock(), Counting()
     b = mk(llm, _ments(2), search=[SP(i, text=f"linux {i}") for i in range(1, 9)], clock=clk, post_every_n_ticks=0,
            llm_rpm=5, llm_auto_rpm=4)
-    assert b.tick(True) == 4 and len(b.queue.pending()) == 4  # startup: 4 auto drafts right away
+    assert b.tick(True) == 4 and len(b.state.prefill) == 4 and not b.queue.pending()  # startup: 4 pre-drafts right away
     b.handle(parse("/tick"))  # F5 in the same minute: says why nothing new
-    assert any("waiting; next auto draft in" in l for l in b.feed)
+    assert any("waiting; next pre-draft in" in l for l in b.feed)
     clk.t += 61; b.handle(parse("/tick"))
-    assert len(b.queue.pending()) > 4
+    assert len(b.state.prefill) > 4 and not b.queue.pending()
 
 
 def test_manual_wait_never_reports_0s(mk):

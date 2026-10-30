@@ -30,7 +30,9 @@ def test_parse_bad(line):
 
 def test_loop_drafts_replies_and_approve_sends(mk):
     b = mk(FakeLLM(["thanks!"]), [{"id": "10", "text": "@me hi", "author_id": "u1"}], post_every_n_ticks=0)
-    assert b.tick() == 1
+    assert b.tick() == 1 and b.queue.pending() == []  # pre-drafted only: nothing auto-queued
+    from tests.conftest import queue_predrafts
+    assert queue_predrafts(b) == 1
     d = b.queue.pending()[0]
     assert d.in_reply_to == "10" and b.since_id == "10"
     b.handle(parse(f"/approve @{d.id}"))
@@ -38,15 +40,11 @@ def test_loop_drafts_replies_and_approve_sends(mk):
     assert any("DRY-SEND" in f for f in b.feed)
 
 
-def test_original_post_cadence(mk):
-    b = mk(FakeLLM(), post_every_n_ticks=2, topics=["linux"])
-    assert b.tick() == 0 and b.tick() == 1
-    assert b.queue.pending()[0].kind == "post"
-
-
-def test_nothing_sent_without_approval(mk):
-    b = mk(FakeLLM(), [{"id": "1", "text": "yo"}], post_every_n_ticks=1)
-    b.tick(); assert b.dry_x.sent == []
+def test_no_automatic_original_posts(mk):
+    llm = FakeLLM()
+    b = mk(llm, post_every_n_ticks=2, topics=["linux"])
+    assert b.tick() == 0 and b.tick() == 0
+    assert b.queue.pending() == [] and llm.calls == []
 
 
 def test_fatal_llm_pauses_no_retry(mk):

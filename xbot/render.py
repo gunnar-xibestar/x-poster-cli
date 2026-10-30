@@ -155,8 +155,8 @@ def feed_text(rec) -> Text:
 
 def status_markup(bot) -> str:
     c = bot.cfg
-    st = ("[bold red]STOPPED[/]" if bot.stopped else "[bold yellow]PAUSED[/]" if bot.paused
-          else "[bold green]RUNNING[/]")
+    w = bot.status_word()
+    st = {"STOPPED": "[bold red]STOPPED[/]", "PAUSED": "[bold yellow]PAUSED[/]"}.get(w, "[bold green]ACTIVE[/]")
     reads = "[bold red]reads=LIVE[/]" if bot.reads_live() else "[green]reads=off[/]"
     send = "[green]send=dry[/]" if c.dry_run else "[bold white on red]send=LIVE[/]"
     grok = (f"[bright_magenta]grok=on[/] [dim]{escape(c.model)}[/]" if bot.grok_on
@@ -221,16 +221,16 @@ def drafts_title(bot):
     cap += f" · waiting {w}" if w else ""
     st = bot.drafting_status() if hasattr(bot, "drafting_status") else ""
     cap += f" · {st}" if st else ""
-    return "Auto replies (Grok drafts) " + (f"{nm}/{mc} mentions · " if nm and mc else f"{nm} mentions · " if nm else "") + cap
+    return "Reply queue " + (f"{nm}/{mc} mentions · " if nm and mc else f"{nm} mentions · " if nm else "") + cap
 
 
 def drafts_placeholder(bot):
     if bot.queue.pending():
         return ""
     if not bot.grok_on:
-        return ("Grok off - add XAI_API_KEY to ~/.config/xbot/env and /grok on to fill this.\n\n"
+        return ("Grok off - add XAI_API_KEY to ~/.config/xbot/env and restart xbot for Grok drafts.\n\n"
                 "Meanwhile: open a post (click #n or press f), press g to write a reply, Ctrl+E saves it here.")
-    return "No drafts yet - /tick or press g on a post."
+    return "No queued replies yet - open a post (click #n or press f), press g for the Grok draft, Ctrl+E saves it here."
 
 
 def _key(k, bg="bright_white"):

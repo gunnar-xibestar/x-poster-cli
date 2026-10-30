@@ -39,7 +39,7 @@ If the user wants to change xbot, suggest they work in **their own private fork*
 
 ## Common errors
 - `xbot: command not found`: PATH (step 5).
-- xAI 401: wrong key, the key was put in `OPENAI_API_KEY` instead of `XAI_API_KEY`, or the base URL points at a proxy that isn't running. Fix it and run `/grok on`.
+- xAI 401: wrong key, the key was put in `OPENAI_API_KEY` instead of `XAI_API_KEY`, or the base URL points at a proxy that isn't running. Fix it and restart xbot.
 - No xAI credits: add credits, then `/resume`.
 - X 401: generate new access tokens after setting Read and Write.
 - X 403 on search-post replies: expected. Use `Ctrl+B` in the editor, `o` on the card, or `a` in the queue (browser reply) instead of `Ctrl+S`.

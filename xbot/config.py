@@ -18,7 +18,7 @@ class Config:
     base_url: str = "http://127.0.0.1:8767/v1"
     persona: str = "You are a thoughtful, concise, friendly account. No hashtags spam, no emojis overload."
     topics: list = field(default_factory=lambda: ["AI", "Linux", "building in public"])
-    post_every_n_ticks: int = 15
+    post_every_n_ticks: int = 15  # unused: automatic original posts were removed (kept so old configs load)
     dry_run: bool = True
     max_chars: int = 280
     search_enabled: bool = True
@@ -55,7 +55,7 @@ class Config:
     style_examples: int = 8  # few-shot examples from your edited drafts in the prompt; 0 disables
     prefill_max: int = 20  # stored drafts for upcoming feed posts; full + queue full = no Grok requests
     llm_rpm: int = 5  # max Grok requests per minute in total (match the key's limit; 0 = no pacing)
-    llm_auto_rpm: int = 4  # of those, max per minute for AUTO drafting; the rest is reserved for manual g drafts
+    llm_auto_rpm: int = 4  # of those, max per minute for Grok PRE-drafting; the rest is reserved for manual g drafts
     spend_limit: float = 5.0  # per-run xAI (Grok) spend limit in USD, always on (<= 0 in the file = $5); reached = save, reset counter, exit
     credits_start: float = 0.0  # xAI credits (USD) you had on credits_start_date, for "est. credits left" (0 = off)
     credits_start_date: str = ""  # YYYY-MM-DD (UTC); empty = count all tracked Grok spend

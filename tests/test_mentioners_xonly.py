@@ -37,8 +37,7 @@ async def test_xonly_empty_xai_key_works(mk, monkeypatch):
     async with app.run_test(size=(140, 50)) as pilot:
         app._run("/tick"); await pilot.pause()
         assert len(b.found) == 3
-        app._run("/grok on"); await pilot.pause()
-        assert not b.grok_on and any("grok still off" in l for l in (b.log.dir / "actions.jsonl").read_text().splitlines())
+        assert not b.grok_on
         app.action_show_post(2); await pilot.pause()
         await pilot.press("g"); await pilot.pause()
         assert isinstance(app.screen, ReplyEditor)
@@ -59,7 +58,7 @@ async def test_card_h_no_hides_forever(mk):
         await pilot.press("h"); await pilot.pause(); await pilot.pause()
         assert b.found[1].get("user_hidden") == "forever" and 2 not in b.nav_order()
         assert isinstance(app.screen, PostCard) and app.screen.n != 2
-        assert b.queue.pending() == [] and "11" in b.state.seen
+        assert [d.in_reply_to for d in b.queue.pending()] == ["11"] and "11" in b.state.seen  # queue keeps it
         assert all(l != "#2" for l, _, _ in b.hidden_list())
 
 

@@ -1,3 +1,4 @@
+from tests.conftest import queue_predrafts
 from xbot.commands import parse
 from xbot.llm import FakeLLM
 from xbot.style import StyleStore, examples_block, KEEP
@@ -13,7 +14,7 @@ class Spy(FakeLLM):
 
 def test_edit_then_approve_records_and_prompt_uses_it(mk):
     llm = Spy()
-    b = mk(llm, search=[P(1, text="rust 2.0 is out")], **S(max_pending=4)); b.tick()
+    b = mk(llm, search=[P(1, text="rust 2.0 is out")], **S(max_pending=4)); b.tick(); queue_predrafts(b)
     d = b.queue.pending()[0]
     b.handle(parse(f"/edit @{d.id} congrats, the borrow checker finally likes me"))
     b.handle(parse(f"/approve @{d.id}"))
@@ -23,7 +24,7 @@ def test_edit_then_approve_records_and_prompt_uses_it(mk):
 
 
 def test_unedited_approve_not_recorded(mk):
-    b = mk(FakeLLM(["same"]), search=[P(1)], **S()); b.tick()
+    b = mk(FakeLLM(["same"]), search=[P(1)], **S()); b.tick(); queue_predrafts(b)
     b.handle(parse(f"/approve @{b.queue.pending()[0].id}")); assert b.style.load() == []
 
 

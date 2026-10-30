@@ -5,7 +5,7 @@
 | `a` / `r` / `e` | draft list | approve / reject / edit selected draft (drafts are numbered 1..4 per section). `r` is instant and hides the source post (listed in `/hidden`; for mentions only that post, no mute/block). `a` on a **non-mention** reply opens X's reply page in your browser prefilled with the current (edited) text (X blocks API replies to posts that didn't mention you); `a` on a **mention** reply sends it through the API (dry/live per `send=`). The queue tip line stays short: `o open · a approve · e edit · r reject · m mentioners · x clear suggested · X clear mentions` |
 | `o` / `Enter` | draft list | open the highlighted draft's post (its card). A mouse click on a draft only focuses the list and highlights it, it never opens it |
 | `m` | draft list | **mentioners list**: see/edit everyone whose mentions you filtered (same as `/mentioners`) |
-| `p` | main | pause / resume |
+| `p` | main | pause / resume Grok pre-drafting (status bar PAUSED / ACTIVE) |
 | `f` | main | browse found posts (arrows + Enter opens a card) |
 | click `#n` | feed | open that post's card |
 | `←/→` `a/d` `j/k` | card | previous / next post (also in the search / `f` card) |

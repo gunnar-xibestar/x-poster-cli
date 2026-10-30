@@ -10,7 +10,7 @@ DRAFT_REF = re.compile(r"^(?:[mM]?\d+|@\d+)$")
 
 COMMANDS = {"pause", "resume", "stop", "align", "post", "reply", "status", "dryrun",
             "approve", "reject", "edit", "topics", "posttopics", "exclude", "include", "excluded", "model", "tick", "help",
-            "search", "searchon", "searchoff", "maxresults", "cap", "maxpending", "maxmentions", "clear", "found", "grok", "reads", "send", "export", "show", "open", "block", "unblock", "blocked", "mute", "unmute", "muted", "filter", "hidden", "backfill", "mentioners", "share", "style", "limit", "feed"}
+            "search", "searchon", "searchoff", "maxresults", "cap", "maxpending", "maxmentions", "clear", "found", "reads", "send", "export", "show", "open", "block", "unblock", "blocked", "mute", "unmute", "muted", "filter", "hidden", "backfill", "mentioners", "share", "style", "limit", "feed"}
 
 
 @dataclass
@@ -111,10 +111,6 @@ def parse(line: str) -> Command:
     if name == "backfill":
         if rest not in ("on", "off"):
             raise CommandError("usage: /backfill on|off")
-        return Command(name, [rest == "on"])
-    if name == "grok":
-        if rest not in ("on", "off"):
-            raise CommandError("usage: /grok on|off")
         return Command(name, [rest == "on"])
     if name == "reads":
         if rest not in ("live", "off", "auto"):

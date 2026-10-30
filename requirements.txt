@@ -1,5 +1,5 @@
 textual>=8
-openai>=1.40
+openai>=3.41,<4
 requests
 requests-oauthlib
 pytest

@@ -1,6 +1,5 @@
 import pytest
 from xbot.commands import parse, CommandError
-from xbot.llm import FakeLLM
 from xbot.xapi import RealX, XError
 from tests.test_search import P, S
 
@@ -33,16 +32,8 @@ def test_xonly_manual_reply_by_found_ref(mk):
     with pytest.raises(CommandError): parse("/reply #x hi")
 
 
-def test_grok_on_enables_drafting(mk):
-    keys = []
-    def factory():
-        if not keys: raise RuntimeError("XAI_API_KEY not set")
-        return FakeLLM(["drafted"])
-    b = mk(xonly=True, llm_factory=factory, search=[P(1)], **S())
-    b.handle(parse("/grok on")); assert not b.grok_on and "still off" in b.feed[-1]
-    keys.append(1); b.handle(parse("/grok on")); assert b.grok_on
-    b.dry_x.fake_search = [P(2)]; assert b.tick() == 1 and "grok=on" in b.status()
-    b.handle(parse("/grok off")); assert not b.grok_on
+def test_grok_command_removed():
+    with pytest.raises(CommandError): parse("/grok on")
 
 
 def test_realx_missing_keys_clear_message(mk, monkeypatch):

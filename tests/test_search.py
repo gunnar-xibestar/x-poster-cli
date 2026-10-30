@@ -2,6 +2,7 @@ from xbot.commands import parse
 from xbot.llm import FakeLLM
 from xbot.queue import DraftQueue
 from xbot.state import BotState
+from tests.conftest import queue_predrafts
 
 P = lambda i, text="Rust 2.0 is out", author="a1", conv=None: {
     "id": str(i), "text": text, "author_id": author, "username": f"u{author}", "conversation_id": conv or str(i)}
@@ -19,8 +20,9 @@ def _S_old(**kw):
 def test_search_drafts_reply_with_author_context(mk):
     llm = FakeLLM(["nice release"])
     b = mk(llm, search=[P(1)], **S())
-    assert b.tick() == 1
-    d = b.queue.pending()[0]
+    assert b.tick() == 1 and b.queue.pending() == []
+    assert b.state.prefill == {"1": "nice release"}
+    queue_predrafts(b); d = b.queue.pending()[0]
     assert d.source == "search" and d.in_reply_to == "1" and "@ua1" in llm.calls[0][1]
     assert b.dry_x.searches == [b.effective_query()[0]] and b.dry_x.sent == []
 
@@ -28,13 +30,13 @@ def test_search_drafts_reply_with_author_context(mk):
 def test_skip_and_dedupe_and_own_posts(mk):
     b = mk(FakeLLM(["SKIP", "good reply"]), search=[P(1), P(2), P(3, author="dryrun-user")], **S())
     assert b.tick() == 1
-    assert [d.in_reply_to for d in b.queue.pending()] == ["2"]
+    assert list(b.state.prefill) == ["2"]
     b.dry_x.fake_search = [P(2)]; assert b.tick() == 0  # seen
 
 
 def test_replied_thread_skipped(mk):
     b = mk(FakeLLM(), search=[P(1, conv="c9")], **S())
-    b.tick(); b.handle(parse(f"/approve @{b.queue.pending()[0].id}"))
+    b.tick(); queue_predrafts(b); b.handle(parse(f"/approve @{b.queue.pending()[0].id}"))
     b.dry_x.fake_search = [P(5, conv="c9")]; assert b.tick() == 0
 
 
@@ -44,15 +46,12 @@ def test_hourly_limit_counts_sends_not_drafts(mk):
     assert b.state.reply_sends_last_hour() == 0
 
 
-def test_queue_cap_stops_drafting(mk):
-    b = mk(FakeLLM(), search=[P(i) for i in range(1, 30)], **S(max_pending=10, max_replies_per_hour=100, search_max_results=30))
+def test_queue_never_auto_filled(mk):
+    b = mk(FakeLLM(), search=[P(i) for i in range(1, 30)], **S(max_pending=10, max_replies_per_hour=100, search_max_results=30, draft_batch=4, prefill_max=6))
     b.tick()
-    assert len(b.queue.pending()) == 10 and "FULL" in b.status()
-    assert any("queue full" in f for f in b.feed)
-    n = len(b.feed); assert b.tick() == 0 and sum("queue full" in f for f in b.feed[n:]) == 0  # logged once
-    b.handle(parse(f"/reject @{b.queue.pending()[0].id}"))  # freed slot: background worker refills from the catalog
+    assert b.queue.pending() == [] and len(b.state.prefill) == 6  # Grok pre-drafts, the queue stays manual
     b.refill_from_catalog()
-    assert len(b.queue.pending()) == 10 and b.queue.pending()[-1].in_reply_to == "11"
+    assert b.queue.pending() == [] and len(b.state.prefill) == 6
 
 
 def test_search_commands(mk):
@@ -65,7 +64,7 @@ def test_search_commands(mk):
 
 def test_url_warning(mk):
     b = mk(FakeLLM(["see https://example.com"]), search=[P(1)], **S())
-    b.tick(); assert any("contains a URL" in f for f in b.feed)
+    b.tick(); queue_predrafts(b); assert any("contains a URL" in f for f in b.feed)
 
 
 def test_daily_cap_blocks_live_send(mk):

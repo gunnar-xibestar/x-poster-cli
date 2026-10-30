@@ -22,11 +22,11 @@ def mkb(mk, nm=6, ns=6, **kw):
 def test_alternates_on_ties_then_prefills_fairly(mk):
     b, llm = mkb(mk); b.tick()
     assert llm.kinds[:2] in (["mention", "search"], ["search", "mention"])
-    assert len(b.mention_pending()) == 2 and len([d for d in b.queue.pending() if d.source == "search"]) == 2
+    assert b.queue.pending() == []  # nothing auto-queued
     pool = set(b.state.prefill)
     assert len(pool) == 4 and len(pool & {str(100 + i) for i in range(6)}) == 2  # shared half each
     n = llm.calls
-    assert not b.wants_drafting() and b.refill_from_catalog() == 0 and llm.calls == n  # all full: no request
+    assert not b.wants_drafting() and b.refill_from_catalog() == 0 and llm.calls == n  # pool full: no request
 
 
 def test_emptiest_queue_goes_first(mk):
@@ -36,13 +36,6 @@ def test_emptiest_queue_goes_first(mk):
         b._remember(P(10 + i), "search")
     b.schedule_drafts(max_requests=1)
     assert llm.kinds == ["search"]
-
-
-def test_mention_prefill_promoted_without_api(mk):
-    b, llm = mkb(mk); b.tick()
-    n = llm.calls; d = b.mention_pending()[0]
-    b.queue.reject(d.id); b.promote_prefill()
-    assert llm.calls == n and len(b.mention_pending()) == 2
 
 
 def test_manual_slot_kept(mk):

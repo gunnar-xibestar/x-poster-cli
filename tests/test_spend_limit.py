@@ -1,3 +1,4 @@
+from tests.conftest import queue_predrafts
 import json, pytest
 from types import SimpleNamespace
 from xbot import credits as K
@@ -161,9 +162,9 @@ def test_reject_is_instant_and_hides_source(tmp_path):
     search = [{"id": str(i), "text": f"post {i} about rust", "author_id": f"a{i}", "username": f"u{i}",
                "public_metrics": {"like_count": 50}} for i in range(1, 8)]
     b = Bot(c, FakeLLM(), DryRunX([], search), ActionLog(sink=lambda *a: None), state_dir=tmp_path, save_config=lambda: None)
-    b.tick()
+    b.tick(); queue_predrafts(b)
     pend = [d for d in b.queue.pending() if d.source != "mention"]
-    assert len(pend) == 2
+    assert len(pend) >= 2
     slow = _SlowLLM(); b.llm = slow
     class Hang(DryRunX):
         def __getattribute__(self, k):

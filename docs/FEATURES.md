@@ -6,14 +6,14 @@
   the current page. The cursor lives in `state.json` (`/clear` keeps it, `/feed reset` restarts from the oldest).
   Serving saved posts makes no X search and no Grok drafting. The pane keeps at most 100 post lines.
 - **Reply drafting** in an editor, with an optional Grok-written first draft (`g` on a card).
-- **Auto-reply queue:** with Grok on, mentions get drafted replies, listed first, with their **own cap of 4** pending
+- **Reply queue (manual only; was auto-reply queue):** replies you save (`g` + `Ctrl+E`, `/reply`, `/post`) wait here for approval; Grok no longer drafts into it automatically, it pre-drafts replies that appear when you open a post. Previously: with Grok on, mentions get drafted replies, listed first, with their **own cap of 4** pending
   drafts (`/maxmentions n`, 0 = unlimited), separate from the 4-suggestion limit (panel title `N/4 mentions · x/4`,
   status `pending=x/4 | mentions=N/4`). Extra mentions still show in the feed, numbered, and wait undrafted
   (`N shown · M waiting`). **Catalog:** the waiting pool is everything in the main feed that has no draft yet (not
   replied, rejected or hidden); the panel shows/drafts at most 4 per section and, as you approve, reject or clear
   drafts, the next catalog items are drafted right away (no new fetch). `F5` (**Refresh feed + catalog**, = `/tick`)
   fetches new mentions and search posts into the feed/catalog. Without an xAI key (X-only) F5 only grows the catalog;
-  once Grok is on (`/grok on`, or the next F5) the queue fills from it. In the queue, `x` clears all suggested drafts and
+  once Grok is connected (restart xbot after adding the key) Grok pre-drafts from it. In the queue, `x` clears all suggested drafts and
   `X` all mention drafts (y/n confirm; posts stay in the feed and cleared ones aren't redrafted). Open a mention's card and
   press `q` to filter that person: their future mentions are hidden and their pending drafts are dropped.
 - **Manual approval for everything.** Nothing posts without you.
@@ -39,3 +39,8 @@
 - **Authors:** block (`b`: opens their X profile so you press Block, and hides them in xbot) or really mute on X (`m`).
 - **Manual checks only:** one check at startup, then `/tick` when you want more (keeps API costs down).
 - Optional daily spend cap (`/cap`).
+
+## Status bar: ACTIVE / PAUSED
+- **ACTIVE**: Grok is connected (working `XAI_API_KEY`) and pre-drafting replies for feed posts.
+- **PAUSED**: Grok is off / not connected, or pre-drafting is paused (`p` or `/pause`, the spend limit, an xAI auth/credit error, or a bare `/clear` until F5). Polling, search and manual `g` drafts keep working.
+- **STOPPED**: after `/stop`.

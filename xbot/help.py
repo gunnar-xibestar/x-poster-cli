@@ -4,15 +4,14 @@ import difflib
 # section -> [(name, args, description, example, detail)]
 SECTIONS = {
     "Bot control": [
-        ("pause", "", "Pause polling/drafting (sends still need approval)", "/pause", "Stops the poll loop from doing work; the app stays open. Key: p."),
-        ("resume", "", "Resume after /pause or after an auth/credit pause", "/resume", "Also clears a pause caused by an xAI auth/credit error."),
+        ("pause", "", "Pause Grok pre-drafting (status PAUSED)", "/pause", "Grok stops pre-drafting replies for feed posts; polling, search and manual g drafts keep working. Key: p."),
+        ("resume", "", "Resume Grok pre-drafting (status ACTIVE when Grok is connected)", "/resume", "Also clears a pause caused by an xAI auth/credit error or the spend limit. Key: p."),
         ("stop", "", "Save queue/state and quit (same as Ctrl+C / Ctrl+Q)", "/stop", "Persists queue.json, state.json, logs 'stopped' and exits."),
         ("tick", "", "Fetch all new mentions + 10 search suggestions", "/tick", "All new mentions (paged, up to 100) then one search of max_results (10) (unless /searchoff); drafts if Grok is on. This is the only way to check again after startup (there is no automatic polling)."),
         ("mentioners", "", "Filtered mentioners list: see and edit whose mentions are hidden (m in the queue)", "/mentioners", "Checked = that person's mentions are hidden. space toggles, Tab jumps to the box to add @handle, Enter or Ctrl+S saves (unchecked are removed), Esc cancels. Also: q on a mention's post card, /filter hide|show @someone."),
         ("status", "", "Print the full status line to the feed", "/status", "Shows run state, reads/send mode, grok, queue, spend."),
-        ("grok", "on|off", "Enable/disable Grok drafting (X-only when off)", "/grok on", "on re-reads ~/.config/xbot/env, so a newly added XAI_API_KEY works without restart."),
         ("align", "<persona text>", "Replace Grok's persona/instructions", "/align dry wit, practical Linux tips, no hype", "Saved to config.json; affects all future drafts."),
-        ("posttopics", "<a, b, c>", "Set topics Grok writes original posts about", "/posttopics AI, Linux, open source", "Comma separated. Saved to config.json. (Was /topics.)"),
+        ("posttopics", "<a, b, c>", "Set topics (kept in config.json; Grok no longer writes original posts on its own)", "/posttopics AI, Linux, open source", "Comma separated. Saved to config.json. (Was /topics.)"),
         ("model", "<name>", "Switch the xAI model", "/model grok-4.7", "Saved to config.json; used on the next draft."),
     ],
     "Search & found": [
@@ -46,7 +45,7 @@ SECTIONS = {
         ("edit", "<n>|m<n> <text>", "Replace the text of the draft at that position", "/edit 2 Shorter, better reply", "Key: e loads the draft into the input; Enter saves."),
         ("maxpending", "<n>", "Max pending suggested-reply drafts (mentions not counted)", "/maxpending 10", "0 = unlimited."),
         ("style", "[clear]", "Show / forget style examples learned from your edits", "/style clear", "Edited Grok drafts you approve or save are kept (last 50, ~/.local/state/xbot/style_examples.jsonl); the newest style_examples (8) go into the prompt as replies in your voice. xbot config style_examples 0 disables."),
-        ("clear", "[mentions|suggested]", "No argument: clear the feed pane and pause auto-drafting until F5. mentions/suggested: reject all pending mention (or suggested) drafts", "/clear suggested", "Posts stay in the feed; cleared ones are not redrafted, other waiting catalog items fill the slots."),
+        ("clear", "[mentions|suggested]", "No argument: clear the feed pane and pause Grok pre-drafting until F5. mentions/suggested: reject all queued mention (or suggested) replies", "/clear suggested", "Posts stay in the feed; the queue is only filled by you (g + Ctrl+E, /reply, /post)."),
         ("maxmentions", "<n>", "Max pending mention-reply drafts (default 10)", "/maxmentions 10", "Extra mentions stay in the feed undrafted; the next one is drafted on the next check after you approve/reject/filter one. 0 = unlimited."),
     ],
     "Posting": [
@@ -67,7 +66,7 @@ KEYS = [("a", "approve selected draft (mention replies send via API; other repli
         ("x / X (queue)", "clear all pending suggested / mention drafts (asks y/n; posts stay in the feed)"),
         ("F2", "open the /filter view (what is hidden and how to change it); works even while typing"),
         ("m", "mentioners list: pop-up to see/edit filtered mentioners (same as /mentioners)"),
-        ("h", "search history: past /search queries (newest first, saved to search_history.json); Enter or click fills the input with /search <query>, Esc closes"), ("p", "pause/resume"), ("f", "browse found posts (arrows + Enter = card)"),
+        ("h", "search history: past /search queries (newest first, saved to search_history.json); Enter or click fills the input with /search <query>, Esc closes"), ("p", "pause/resume Grok pre-drafting (status ACTIVE/PAUSED)"), ("f", "browse found posts (arrows + Enter = card)"),
         ("click #n", "click a found post number in the feed to open its card"),
         ("q (in mention card)", "filter this mentioner: hide their future mentions, drop their pending drafts (edit the list with m or /mentioners)"),
         ("v (in card)", "view all of the post's media (photos, videos, GIFs) in the terminal with mpv; ←/→ previous/next item (always shown; continues into the next/previous post with media), z large photo (toggle normal fit / largest fit, never cropped), l like the post on screen, r remove (mute the author on X + hide the post, then the next post), t tags (opens the card's filter popup; Enter applies + hides the post and resumes at the next post, Esc resumes at the same item), q/Esc back; on videos also a/d seek 5s, ↑/↓ volume, space pause, m mute"),

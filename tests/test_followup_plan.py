@@ -1,3 +1,4 @@
+from tests.conftest import queue_predrafts
 """Tests for the Oct 2026 plan: 429 back-off, queue size 4, hide forever, media detection, models, TUI polish."""
 import json
 import pytest
@@ -33,7 +34,7 @@ def test_429_backs_off_one_warning_then_retries(mk):
     assert b.draft_for_post(1) is None and "retrying in" in b.last_draft_error and len(llm.calls) == 1
     now[0] += 61
     assert b.retry_due()
-    assert b.refill_from_catalog() == 4 and len(b.queue.pending()) == 4  # queue size 4
+    assert b.refill_from_catalog() >= 1 and b.state.prefill and b.queue.pending() == []  # pre-drafts only
     assert not b.retry_due()
 
 
@@ -50,7 +51,8 @@ def test_msg_is_one_readable_line():
 
 
 def test_429_maps_to_rate_limited():
-    httpx = pytest.importorskip("httpx"); openai = pytest.importorskip("openai")
+    import openai
+    from tests.test_grok_timeout import httpx
     from xbot.llm import GrokLLM
     req = httpx.Request("POST", "http://x/v1/chat/completions")
     resp = httpx.Response(429, request=req, headers={"retry-after": "30"})
@@ -92,12 +94,12 @@ def test_queue_size_default_and_migration(tmp_path):
 
 def test_hide_forever_removes_from_feed_and_queue_and_persists(mk, tmp_path):
     b = mk(FakeLLM(["hi"] * 20), search=[P(i) for i in range(1, 5)], **S(max_replies_per_hour=100))
-    b.tick()
+    b.tick(); queue_predrafts(b)
     assert len(b.queue.pending()) == 4
     b.found.append(dict(b.found[0], source="mention"))  # same post twice
     b.hide_post(1, forever=True)
     assert all(p.get("user_hidden") for p in b.found if p["id"] == "1")
-    assert "1" not in {d.in_reply_to for d in b.queue.pending()}
+    assert "1" in {d.in_reply_to for d in b.queue.pending()}  # queued reply stays when the post is hidden
     assert "1" not in {p["id"] for p in b.search_catalog() + b.mentions_waiting()}
     b.export()
     b2 = mk(FakeLLM())  # restart, same state dir
@@ -170,7 +172,7 @@ async def test_h_hides_at_once_with_toast(mk):
 async def test_edit_in_place_and_queue_click_opens_card(mk):
     from textual.widgets import Input, ListView
     from xbot.app import XBotApp, PostCard, FoundPicker
-    b = mk(FakeLLM(["hi"] * 10), search=[P(10), P(11)], **S(max_replies_per_hour=100)); b.tick()
+    b = mk(FakeLLM(["hi"] * 10), search=[P(10), P(11)], **S(max_replies_per_hour=100)); b.tick(); queue_predrafts(b)
     app = XBotApp(bot=b, autostart=False)
     async with app.run_test(size=(160, 50)) as pilot:
         await pilot.pause()

@@ -89,7 +89,7 @@ async def test_drafts_panel_title_and_placeholder(mk):
     async with app.run_test(size=(140, 40)) as pilot:
         app.refresh_ui(); await app.workers.wait_for_complete(); await pilot.pause()
         box = app.query_one("#drafts")
-        assert box.border_title == "Auto replies (Grok drafts) 0/4"
+        assert box.border_title == "Reply queue 0/4"
         assert "approve" in box.border_subtitle and "reject" in box.border_subtitle
         ph = app.query_one("#queue-empty", Static)
         assert ph.display and "Grok off" in str(ph.render())
@@ -97,4 +97,4 @@ async def test_drafts_panel_title_and_placeholder(mk):
         assert box.border_title.endswith("1/4") and not ph.display
     b2 = mk(llm=FakeLLM())
     for d in b2.queue.pending(): b2.queue.reject(d.id)
-    assert "No drafts yet" in drafts_placeholder(b2) and drafts_title(b2).startswith("Auto replies")
+    assert "No queued replies yet" in drafts_placeholder(b2) and drafts_title(b2).startswith("Reply queue")

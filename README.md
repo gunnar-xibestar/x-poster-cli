@@ -5,7 +5,7 @@
 > [!IMPORTANT]
 > **Before you start**
 > - **Required:** an X API developer account and keys: <https://console.x.com>
-> - **Optional:** an xAI API key, only for Grok-drafted replies: <https://console.x.ai> (recommended: set the key to **5 requests/min or lower** and run `xbot config llm_rpm <same number>`; auto drafts fill in gradually, one slot per minute stays free for your manual `g`)
+> - **Optional:** an xAI API key, only for Grok-drafted replies: <https://console.x.ai> (recommended: set the key to **5 requests/min or lower** and run `xbot config llm_rpm <same number>`; Grok pre-drafts fill in gradually, one slot per minute stays free for your manual `g`)
 
 > [!TIP]
 > **Easiest install: ask your [Grok Bot](https://x.ai/bot).** Paste this to it:
@@ -27,7 +27,7 @@
 - Optional: an xAI management key, for the real credit balance in the status bar (see [xAI management key](docs/GETTING_KEYS.md#xai-management-key-optional-real-credit-balance)).
 
 ## Screenshots
-**Main screen** — top: X posts (mentions numbered and listed first, then suggested posts, `[media]` on posts with photos or videos); below it the **console**; the auto-reply queue on the right (up to 4 Grok-drafted **Mentions**, then up to 4 **Suggested replies**, each header showing `N shown · M waiting`), status bar below. Queue keys: `o` open (a click only highlights) · `a` approve · `e` edit · `r` reject · `m` mentioners list · `x`/`X` clear suggested/mention drafts.
+**Main screen** — top: X posts (mentions numbered and listed first, then suggested posts, `[media]` on posts with photos or videos); below it the **console**; the reply queue on the right (**Mentions**, then **Suggested replies**: only replies you saved yourself, e.g. `g` then `Ctrl+E`; nothing is drafted into it automatically), status bar below. The status bar starts with **ACTIVE** when Grok is connected and pre-drafting replies for feed posts (shown instantly when you open a post and press `g`), or **PAUSED** when Grok is off/not connected or pre-drafting is paused (`p` toggles it). Queue keys: `o` open (a click only highlights) · `a` approve · `e` edit · `r` reject · `m` mentioners list · `x`/`X` clear suggested/mention drafts.
 ![Main screen](docs/screenshots/01-main.png)
 
 **Console** — output, errors and the command line (`/help` shown here); `Tab` completes commands, `↑`/`↓` browse your history, `F3` hides/shows it, `/` brings it back to type.
@@ -42,8 +42,8 @@
 **Edit tags** (`t` on a card) — filter posts like this one: its author, tags, topics and words; `space` toggles, `Enter` applies and hides the post, `Esc` cancels.
 ![Edit tags](docs/screenshots/05-edit-tags.png)
 
-**Auto reply** (`g` on the card) — reply editor with a Grok-drafted reply; `Ctrl+E` save to queue, `Ctrl+B` post in browser, `Ctrl+G` regenerate.
-![Auto reply](docs/screenshots/06-auto-reply.png)
+**Grok reply** (`g` on the card) — reply editor with a Grok-drafted reply; `Ctrl+E` save to queue, `Ctrl+B` post in browser, `Ctrl+G` regenerate.
+![Grok reply](docs/screenshots/06-auto-reply.png)
 
 ## Quick install
 Prefer a hand? See the [Grok Bot install tip](#x-poster-cli) at the top. Otherwise, here is the old-fashioned way:
